@@ -28,7 +28,7 @@
 ; StoreKeyboard holds the previous $68 vector so it can be restored on exit.
 ;
 ;==============================================================================
-
+    incdir  "include"
     include    "hardware/cia.i"     ; CIA register offsets and bit definitions
 
 

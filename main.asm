@@ -4,10 +4,14 @@
 ;-----------------------------------------------
 
     INCDIR     "include"
+    INCDIR     "include/resources"
+
     INCLUDE    "hw.i"
     INCLUDE    "funcdef.i"
+
     include    "macros.asm"
     include    "variables.asm"
+
     include    "intbits.i"
     include    "dmabits.i"
     include    "const.asm"
