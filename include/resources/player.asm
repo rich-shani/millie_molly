@@ -908,7 +908,7 @@ PlayerShowWalkAnim:
     tst.w       Player_DirectionY(a4)
     bne         .ontladder
 
-      ; Update Player_OnLadder based on current cell type, since we can only be on a ladder if moving vertically onto it.
+    ; Update Player_OnLadder based on current cell type, since we can only be on a ladder if moving vertically onto it.
       move.w      Player_Y(a4),d1
       mulu        #WALL_PAPER_WIDTH,d1
       add.w       Player_X(a4),d1        ; d1 = current cell offset

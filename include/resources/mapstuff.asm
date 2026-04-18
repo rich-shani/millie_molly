@@ -82,6 +82,7 @@ DrawMap:
     bsr           DrawShadows            ; overlay shadow graphics
     bsr           CopySaveToStatic       ; copy clean background to ScreenStatic
     bsr           DrawStaticActors       ; blit actor tiles on top of ScreenStatic
+    bsr           DrawInitialPlayers     ; draw both players at level start
     bsr           CopyStaticToBuffers    ; copy to display buffers
 
 .notboth
@@ -199,13 +200,46 @@ LevelInit:
     move.l        #SCREEN_SIZE,d7
     bsr           TurboClear
 
-    ; Deactivate both players until their start positions are found in the map
+    ; Deactivate both players and clear their state until they are
+    ; re-initialized from the level map
     lea           Millie(a5),a0
     clr.w         Player_Status(a0)      ; Millie inactive
+    clr.w         Player_X(a0)           ; Clear tile position X
+    clr.w         Player_Y(a0)           ; Clear tile position Y
+    clr.w         Player_XDec(a0)        ; Clear sub-tile X offset
+    clr.w         Player_YDec(a0)        ; Clear sub-tile Y offset
+    clr.w         Player_PrevX(a0)       ; Clear previous X
+    clr.w         Player_PrevY(a0)       ; Clear previous Y
+    clr.w         Player_NextX(a0)       ; Clear destination X
+    clr.w         Player_NextY(a0)       ; Clear destination Y
+    clr.w         Player_ActionCount(a0) ; Clear action countdown
+    clr.w         Player_AnimFrame(a0)   ; Clear animation frame
+    move.w        #1,Player_Facing(a0)   ; Set facing to right
+    clr.w         Player_OnLadder(a0)    ; Clear ladder state
+    clr.w         Player_DirectionX(a0)  ; Clear directional input
+    clr.w         Player_DirectionY(a0)  ; Clear directional input
+    clr.w         Player_Fallen(a0)      ; Clear falling flag
+    clr.w         Player_ActionFrame(a0) ; Clear action frame counter
     move.l        a0,PlayerPtrs(a5)      ; PlayerPtrs[0] -> Millie
 
     lea           Molly(a5),a0
     clr.w         Player_Status(a0)      ; Molly inactive
+    clr.w         Player_X(a0)           ; Clear tile position X
+    clr.w         Player_Y(a0)           ; Clear tile position Y
+    clr.w         Player_XDec(a0)        ; Clear sub-tile X offset
+    clr.w         Player_YDec(a0)        ; Clear sub-tile Y offset
+    clr.w         Player_PrevX(a0)       ; Clear previous X
+    clr.w         Player_PrevY(a0)       ; Clear previous Y
+    clr.w         Player_NextX(a0)       ; Clear destination X
+    clr.w         Player_NextY(a0)       ; Clear destination Y
+    clr.w         Player_ActionCount(a0) ; Clear action countdown
+    clr.w         Player_AnimFrame(a0)   ; Clear animation frame
+    move.w        #1,Player_Facing(a0)   ; Set facing to right
+    clr.w         Player_OnLadder(a0)    ; Clear ladder state
+    clr.w         Player_DirectionX(a0)  ; Clear directional input
+    clr.w         Player_DirectionY(a0)  ; Clear directional input
+    clr.w         Player_Fallen(a0)      ; Clear falling flag
+    clr.w         Player_ActionFrame(a0) ; Clear action frame counter
     move.l        a0,PlayerPtrs+4(a5)    ; PlayerPtrs[1] -> Molly
 
     bsr           SetLevelAssets         ; decompress tile set + set palette
@@ -1577,6 +1611,53 @@ DrawActor:
     move.w        #TILE_BLT_SIZE,BLTSIZE(a6)
 
     POPMOST
+    rts
+
+
+;==============================================================================
+; DrawInitialPlayers  -  Display both players at their starting positions
+;
+; Called from DrawMap after actors are drawn, to show both players at the
+; start of a level.
+;
+; The active player (Status=1) is shown via hardware sprites (ShowSprite).
+; The frozen player (Status=2) is shown as a static blitted sprite using
+; the same DrawPlayerFrozen function called during player switching.
+;==============================================================================
+
+DrawInitialPlayers:
+    ; Check Molly (PlayerPtrs+4)
+    move.l      PlayerPtrs+4(a5),a4
+    tst.w       Player_Status(a4)
+    beq         .check_millie             ; skip if inactive (0)
+
+    cmp.w       #1,Player_Status(a4)
+    beq         .molly_active
+    ; Molly is frozen (Status=2) - draw as static blit using DrawPlayerFrozen
+    bsr         DrawPlayerFrozen
+    bra         .check_millie
+
+.molly_active
+    moveq       #0,d0                      ; d0 = animation frame (idle)
+    bsr         ShowSprite                 ; draw active player via hardware sprites
+
+.check_millie
+    ; Check Millie (PlayerPtrs+0)
+    move.l      PlayerPtrs(a5),a4
+    tst.w       Player_Status(a4)
+    beq         .init_done                ; skip if inactive (0)
+
+    cmp.w       #1,Player_Status(a4)
+    beq         .millie_active
+    ; Millie is frozen (Status=2) - draw as static blit using DrawPlayerFrozen
+    bsr         DrawPlayerFrozen
+    bra         .init_done
+
+.millie_active
+    moveq       #0,d0                      ; d0 = animation frame (idle)
+    bsr         ShowSprite                 ; draw active player via hardware sprites
+
+.init_done
     rts
 
 

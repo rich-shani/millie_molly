@@ -21,6 +21,7 @@ Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written 
 - **Enemy types**: Falling enemies (BLOCK_ENEMYFALL), floating enemies (BLOCK_ENEMYFLOAT), pushable blocks (BLOCK_PUSH), breakable dirt (BLOCK_DIRT)
 - **Level system**: Multiple tileset variations with theme switching
 - **Title screen**: Working title state with star animation
+- **Two-player initialization**: Both players now visible at level start - one active, one frozen
 
 ### In Progress / TODO
 - Enemy destruction animations
@@ -28,88 +29,87 @@ Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written 
 - Rewind/undo mechanic
 - Game presentation polish
 - Handle F3 to start game in TitleRun (partially implemented - see last commit)
+- Fix missing player start positions in some level data files
 
-## Key Technical Fixes Completed
+## Recent Fixes (Session 2)
+
+### Player Start Position Bug (Levels 26-29, etc.)
+**Problem**: When transitioning to later levels, players started at position (0,0) instead of their defined start positions.
+
+**Root Cause**: 
+- Player position fields (X, Y, XDec, YDec) were not being cleared when starting a new level
+- Old position data from previous level persisted
+- ActionStatus and other animation state also carried over
+
+**Solution** (in mapstuff.asm LevelInit):
+```asm
+; Clear all player position and animation state for both players
+; when starting a new level, ensuring clean slate for InitPlayer
+clr.w         Player_X(a0)
+clr.w         Player_Y(a0)
+clr.w         Player_XDec(a0)
+clr.w         Player_YDec(a0)
+clr.w         Player_PrevX(a0)
+clr.w         Player_PrevY(a0)
+clr.w         Player_NextX(a0)
+clr.w         Player_NextY(a0)
+clr.w         Player_ActionCount(a0)
+clr.w         Player_AnimFrame(a0)
+move.w        #1,Player_Facing(a0)
+clr.w         Player_OnLadder(a0)
+clr.w         Player_DirectionX(a0)
+clr.w         Player_DirectionY(a0)
+clr.w         Player_Fallen(a0)
+clr.w         Player_ActionFrame(a0)
+```
+
+### Two-Player Visibility at Level Start
+**Problem**: Only one player was visible at level start; had to press FIRE to see the other player.
+
+**Root Cause**: 
+- InitPlayer code had commented-out code for drawing the second player as frozen
+- DrawMap did not call any function to draw initial player sprites
+- Only dynamic game logic drew players via ShowSprite
+
+**Solution**:
+1. Modified InitPlayer (actors.asm) to set player status based on initialization order:
+   - First player: Status = 1 (active/controlled)
+   - Second player: Status = 2 (frozen/waiting for switch)
+
+2. Created DrawInitialPlayers function (mapstuff.asm) that:
+   - Draws Molly first (so Millie appears on top if same position)
+   - Draws Millie second
+   - Skips any player with Status = 0 (inactive)
+   - Draws idle sprite (frame 0) for each player
+
+3. Updated DrawMap to call DrawInitialPlayers before copying buffers to display
+
+## Key Technical Fixes (Session 1)
 
 ### 1. Actor Background Restoration (Background Tile Corruption)
 **Problem**: When actors were pushed, they left visual artifacts - the old actor position wasn't restored to background tile.
 
-**Root Cause**: 
-- PlayerMoveActor was updating Actor_X but NOT setting Actor_HasMoved flag
-- ClearMovedActors function checks this flag to know which actors need background restoration
-
-**Solution**: 
-```asm
-; In PlayerMoveActor (player.asm ~line 1108):
-move.w      #1,Actor_HasMoved(a3)  ; Mark actor as moved so background gets restored
-```
-
-**Related Code**:
-- `ClearMovedActors` in actors.asm iterates all actors with HasMoved=1, calls `ClearStaticBlock` to restore each from ScreenSave
-- `ClearStaticBlock` in mapstuff.asm uses minterm $7ca to copy clean background from ScreenSave to ScreenStatic
-- Must be called BEFORE DrawActor to prevent animation trails
+**Solution**: Added `move.w #1,Actor_HasMoved(a3)` in PlayerMoveActor to mark actor as moved.
 
 ### 2. Actor Push Animation - Continuous Background Clearing
 **Problem**: During push animation (24-frame sequence), old actor positions left trails.
 
-**Solution**: Added background restoration each frame in ActionPlayerPush:
-```asm
-; In ActionPlayerPush (player.asm ~line 206):
-bsr         ClearStaticBlock        ; Restore background before drawing
-bsr         DrawActor               ; Draw actor at new animation frame position
-```
-
-This ensures background is refreshed before each frame of the push animation, preventing visual trails.
+**Solution**: Added background restoration each frame in ActionPlayerPush via `bsr ClearStaticBlock`.
 
 ### 3. Multi-Tile Fall Animation - Background Clearing
-**Problem**: When actors fall multiple tiles, only the starting tile's background was being restored. Used divu which failed because high word of d2 contained garbage.
+**Problem**: When actors fall multiple tiles, only starting tile's background was restored. Division operation failed.
 
-**Solution**: Loop-based tile counting instead of division:
-```asm
-; Count how many full tiles fallen (YDec accumulates sub-tile pixels)
-move.w      Actor_YDec(a3),d2
-moveq       #0,d4                   ; d4 = tile count
-.tilecount
-cmp.w       #24,d2                  ; One tile = 24 pixels
-bcs         .tilesdone
-addq.w      #1,d4
-sub.w       #24,d2
-bra         .tilecount
-.tilesdone
-add.w       d4,d1                   ; d1 = PrevY + tiles fallen (new starting tile)
-```
-
-Then loop to clear all affected tiles. Why divu failed: `move.w` loads only low 16 bits; high word of d2 contains garbage, causing divu to produce incorrect results.
+**Solution**: Loop-based tile counting instead of divu (to avoid garbage in register high word).
 
 ### 4. Ladder Sprite Selection Logic
-**Problem**: Sprite flipped between walking and climbing on tile transitions, breaking animation continuity.
+**Problem**: Sprite flipped between walking and climbing on tile transitions.
 
-**Root Cause**: Complex multi-condition logic checking different aspects of movement caused sprite to flip as player crossed tile boundaries.
-
-**User's Elegant Solution**: 
-Key insight: **Vertical movement (DirectionY non-zero) ONLY occurs on ladders**. Use this as the primary indicator:
-
-```asm
-; In PlayerShowWalkAnim (player.asm ~line 906):
-; If moving vertically, we're on a ladder - show climbing sprite
-move.b      Player_DirectionY(a4),d0
-bne         .show_climbing_sprite   ; Non-zero = moving vertically = on ladder
-```
-
-Then check edge cases for bottom-of-ladder transitions:
-- At bottom of tile (YDec >= 20): show climbing sprite only if DirectionY non-zero (user pressing UP key)
-- Animation cycles: 0-3 for ladder, 0-7 for walking (controlled by Player_OnLadder flag)
-
-This approach avoids flipping by recognizing that tile transitions don't change the fundamental fact that vertical movement = ladder presence.
+**Solution**: Recognize that DirectionY non-zero ONLY occurs on ladders; use as primary indicator.
 
 ### 5. Continuous Movement Input
-**Problem**: Player moved one tile then stopped; had to release and repress key to move again.
+**Problem**: Player moved one tile then stopped; needed key release and repress.
 
-**Solution**: Changed PlayerIdle to use `ControlsHold` instead of `ControlsTrigger`:
-- `ControlsTrigger`: Edge-triggered (fires once on key press)
-- `ControlsHold`: Level-triggered (fires every frame key is held)
-
-This allows smooth continuous movement while key is held down.
+**Solution**: Changed PlayerIdle to use ControlsHold (level-triggered) instead of ControlsTrigger (edge-triggered).
 
 ## Architecture Notes
 
@@ -133,8 +133,8 @@ This allows smooth continuous movement while key is held down.
 ## File Structure
 - **main.asm**: Entry point, VBlank handler, utilities
 - **player.asm** (63KB): Player logic, movement, animation, push/fall actions
-- **actors.asm**: Actor pool management, ClearMovedActors function
-- **mapstuff.asm**: Level rendering, ClearStaticBlock, PasteTile
+- **actors.asm**: Actor pool management, ClearMovedActors, player initialization
+- **mapstuff.asm**: Level rendering, ClearStaticBlock, PasteTile, DrawInitialPlayers
 - **gamestatus.asm**: Game state machine (TitleSetup, TitleRun, GameRun)
 - **title.asm**: Title screen implementation
 - **controls.asm**: Control input handling
@@ -149,7 +149,23 @@ This allows smooth continuous movement while key is held down.
 - **zx0_faster.asm**: ZX0 decompression
 - **tools.asm**: Utility routines (TurboClear, etc)
 
+## Tools Created
+- **tools/inspect_levels.py**: Read and display levels.bin data as human-readable text
+  - `python3 inspect_levels.py 26` - Show level 26
+  - `python3 inspect_levels.py all` - Show all levels
+  - `python3 inspect_levels.py missing` - Show levels with missing Millie or Molly start
+
+- **tools/edit_levels.py**: Edit level data and write back to levels.bin
+  - `python3 edit_levels.py 26 view` - Display level 26
+  - `python3 edit_levels.py 26 get 5 3` - Show block at (5,3)
+  - `python3 edit_levels.py 26 set 0 0 H` - Set ladder at (0,0)
+
+## Known Issues
+- Some level data files may be missing BLOCK_MILLIESTART or BLOCK_MOLLYSTART markers
+- Use inspect_levels.py with "missing" argument to identify levels needing data fixes
+
 ## Recent Git History
+- (Session 2) Fixed player position clearing at level init and two-player visibility
 - 3add273: Handle F3 to start game in TitleRun
 - 02e7af0: Add comprehensive comments to main and uigfx
 - a8e3349: Move asm resources; update VSCode tasks
@@ -157,13 +173,14 @@ This allows smooth continuous movement while key is held down.
 - de7ff22: Initial Commit
 
 ## Documentation
-- Comprehensive README.md created with full technical architecture, gameplay features, blitter details, and build instructions
+- Comprehensive README.md with full technical architecture, gameplay features, blitter details, and build instructions
 
 ## Next Steps if Resuming
-1. **Test title screen F3 start**: Last commit attempted to handle F3 key to transition from title to gameplay
-2. **Polish remaining animations**: Enemy destruction, fall easing, enter/leave ladder transitions
-3. **Performance profiling**: Profile on real hardware or UAE to identify optimization opportunities
-4. **Testing coverage**: Test all edge cases in ladder transitions, enemy collisions, level completion
+1. **Build and test**: Assemble code to verify no syntax errors
+2. **Test two-player visibility**: Check that both players appear at level start in levels with both player start markers
+3. **Fix missing player starts**: Use inspect_levels.py to find levels missing BLOCK_MILLIESTART or BLOCK_MOLLYSTART
+4. **Test level transitions**: Verify players start at correct positions in levels 26-29 and others
+5. **Polish remaining animations**: Enemy destruction, fall easing, enter/leave ladder transitions
 
 ## Build & Test
 ```bash
@@ -180,6 +197,7 @@ uae --fullscreen
 3. **State machine simplicity**: Complex sprite selection logic was simplified by recognizing that DirectionY directly indicates ladder presence
 4. **Register management**: a5 as variables base must be maintained; other registers follow 68000 conventions strictly
 5. **Copper timing**: All display synchronization driven by Copper; CPU handles game logic only
+6. **Level data integrity**: Player start positions must be defined in level data files; levels missing these will default to (0,0)
 
 ## Session Continuity
-This file captures the project state as of April 18, 2026. All major gameplay mechanics are working. The code is well-commented and structured. Next session should focus on testing the F3 title-to-gameplay transition and any remaining polish tasks.
+This file captures the project state as of April 18, 2026 (Session 2). Major gameplay mechanics are working. Two recent bug fixes addressed player initialization at level transitions and two-player visibility at level start. Code is well-commented and structured. Next session should focus on testing the fixes and addressing remaining level data issues.

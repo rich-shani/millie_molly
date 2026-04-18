@@ -271,14 +271,18 @@ InitPlayer:
     clr.w       Player_OnLadder(a4)        ; start on ground (not on ladder)
     move.w      d1,Player_X(a4)            ; set starting tile column
     move.w      d2,Player_Y(a4)            ; set starting tile row
-    move.w      #1,Player_Status(a4)       ; status = 1 (active)
     move.w      #1,Player_DirectionX(a4)   ; initial facing: right
     clr.w       Player_XDec(a4)            ; no sub-tile X offset
     clr.w       Player_YDec(a4)            ; no sub-tile Y offset
 
-    ; Commented-out code: would draw the "frozen" idle graphic for the second
-    ; player when both are initialised.  Currently not used.
-.noother
+    ; Set player status: first player is active (1), second is frozen (2)
+    cmp.w       #1,PlayerCount(a5)         ; is this the first player?
+    beq         .first_player
+    move.w      #2,Player_Status(a4)       ; status = 2 (frozen, waiting for switch)
+    bra         .init_done
+.first_player
+    move.w      #1,Player_Status(a4)       ; status = 1 (active, controlled by player)
+.init_done
     rts
 
 
