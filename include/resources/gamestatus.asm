@@ -75,4 +75,5 @@ GameRun:
 
     move.l      PlayerPtrs(a5),a4   ; a4 -> active player structure (first entry)
     bsr         PlayerLogic          ; run player action state machine for this frame
+
     rts

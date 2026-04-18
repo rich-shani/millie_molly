@@ -126,7 +126,24 @@ ActionFallActors:
     beq         .next                   ; no - already finished
 
     addq.w      #1,d6                   ; count: one more actor still falling
-    bsr         ClearActor              ; erase from current screen position
+      
+    ; Restore the background tile from ScreenSave before animating
+    move.w      Actor_PrevX(a3),d0      ; original tile X coordinate
+    move.w      Actor_PrevY(a3),d1      ; original tile Y coordinate
+
+    ; add the current sub-pixel Y offset to get the current pixel position within the fall
+    move.w      Actor_YDec(a3),d2       ; current pixel offset within fall
+
+    ; Add the YDec offset to the tile Y coordinate, divide by 24 (pixels per tile) to get a tile offset
+    ; This gives us the correct tile to blit for the current sub-pixel position of the falling actor.
+
+    moveq       #0,d2                       ; clear d2 (high and low)
+    move.w      Actor_YDec(a3),d2           ; now load YDec safely into low word
+    divu        #24,d2                      ; divide the full 32-bit zero-extended value
+    add.w       d2,d1
+    bsr         ClearStaticBlock        ; blit background from ScreenSave
+
+;    bsr         ClearActor              ; erase from current screen position
     addq.w      #1,Actor_YDec(a3)      ; advance sub-pixel Y by one pixel
 
     bsr         DrawActor               ; redraw at new sub-pixel position
@@ -181,6 +198,11 @@ PUSH_DELTA  = (SINE_ANGLES<<16)/2/PUSH_STEPS
 
 ActionPlayerPush:
     move.l      PushedActor(a5),a3     ; a3 -> the block being pushed
+
+    ; First, restore the background tile from ScreenSave for the entire animation area
+    move.w      Actor_PrevX(a3),d0      ; tile X coordinate
+    move.w      Actor_PrevY(a3),d1      ; tile Y coordinate
+    bsr         ClearStaticBlock        ; blit background from ScreenSave to ScreenStatic
 
     bsr         ClearActor             ; erase block from current drawn position
 
@@ -391,7 +413,7 @@ ActionIdle:
     bsr         CheckLevelDone         ; d3 = number of remaining enemies (0 = level done)
     tst.w       d3
     bne         .notdone
-    move.w      #1,LevelComplete(a5)  ; no enemies left -> level complete
+    move.w      #1,LevelComplete(a5)  ; no enemiealmost s left -> level complete
 
 .notdone
 .exit
@@ -754,7 +776,7 @@ PlayerInactive:
 PlayerIdle:
     bsr         PlayerShowIdleAnim    ; update idle animation frame
 
-    move.b      ControlsTrigger(a5),d0  ; d0 = newly-pressed keys this frame
+    move.b      ControlsHold(a5),d0  ; d0 = newly-pressed keys this frame
 
     ; Check each direction; set DirectionX/Y and branch to .move if pressed
     move.w      #1,Player_DirectionX(a4)    ; assume right
@@ -882,36 +904,88 @@ PlayerShowIdleAnim:
 ;==============================================================================
 
 PlayerShowWalkAnim:
-    ; Only advance animation every other frame
-    move.w      TickCounter(a5),d0
-    and.w       #1,d0
-    bne         .show                 ; odd frame: show but don't advance
+    ; if Player_DirectionY is non-zero, we are definitely on a ladder (vertical movement only)
+    tst.w       Player_DirectionY(a4)
+    bne         .ontladder
 
-    ; Advance walk animation (even frames only)
-    move.w      Player_AnimFrame(a4),d0
-    addq.w      #1,d0
-    and.w       #7,d0                 ; cycle 0..7 (walk)
-    move.w      d0,Player_AnimFrame(a4)
+      ; Update Player_OnLadder based on current cell type, since we can only be on a ladder if moving vertically onto it.
+      move.w      Player_Y(a4),d1
+      mulu        #WALL_PAPER_WIDTH,d1
+      add.w       Player_X(a4),d1        ; d1 = current cell offset
+      lea         GameMap(a5),a0
+      move.b      (a0,d1.w),d2           ; d2 = current cell type
+      moveq       #0,d3                  ; d3 = on ladder flag (default: walking)
+
+      cmp.b       Player_LadderId(a4),d2 ; on a ladder cell?
+      bne         .notlad
+
+      ; On a ladder cell - check if we've reached the bottom and are stepping off
+      move.b      WALL_PAPER_WIDTH(a0,d1.w),d4  ; d4 = cell type directly below
+      cmp.b       #BLOCK_LADDER,d4 ; is cell below also a ladder?
+      beq         .ontladder             ; yes - still climbing
+
+      ; Switch to walking if we're moving horizontally away from the ladder (DirectionX non-zero).
+      ; *and* there's no ladder left/right that we could climb onto
+
+      tst.w       Player_DirectionX(a4)     ; moving left or right?
+      beq         .ontladder                ; no - not moving horizontally, so still on the ladder
+
+      ; check tile to the left/right of the Player
+        add.w       Player_DirectionX(a4),d1        ; d1 = current cell offset
+        move.b      (a0,d1.w),d2  ; d2 = cell type to the right
+        cmp.b       #BLOCK_LADDER,d2
+        bne         .notlad          
+
+.ontladder
+      moveq       #1,d3                  ; use climbing sprite
+
+.notlad
+      move.w      d3,Player_OnLadder(a4)
+
+      ; Only advance animation every other frame
+      move.w      TickCounter(a5),d0
+      and.w       #1,d0
+      bne         .show                 ; odd frame: show but don't advance
+
+      ; Advance walk animation (even frames only)
+      move.w      Player_AnimFrame(a4),d0
+      addq.w      #1,d0
+
+      ; Cycle limit depends on whether on ladder (0-3) or walking (0-7)
+      tst.w       Player_OnLadder(a4)
+      beq         .walkframes
+      and.w       #3,d0                 ; ladder: cycle 0..3
+      bra         .saveframe
+
+.walkframes
+      and.w       #7,d0                 ; walk: cycle 0..7
+.saveframe
+      move.w      d0,Player_AnimFrame(a4)
 
 .show
-    move.w      Player_AnimFrame(a4),d0
+      move.w      Player_AnimFrame(a4),d0
 
-    move.w      #PLAYER_SPRITE_LADDER_OFFSET,d1  ; default: ladder climb offset
-    tst.w       Player_OnLadder(a4)
-    bne         .isright              ; on ladder -> use ladder offset
+      ; Determine if on ladder or walking
+      tst.w       Player_OnLadder(a4)
+      beq         .walking
 
-    ; Off ladder: use walk offset + facing adjustment
-    move.w      #PLAYER_SPRITE_WALK_OFFSET,d1
+      ; On ladder: use ladder offset (doesn't change based on facing)
+      add.w       #PLAYER_SPRITE_LADDER_OFFSET,d0
+      bsr         ShowSprite
+      rts
 
-    tst.w       Player_Facing(a4)
-    bpl         .isright
-    add.w       #PLAYER_SPRITE_LEFT_OFFSET,d0  ; left-facing: offset the frame index
+.walking
+      ; Off ladder: use walk offset + facing adjustment
+      move.w      #PLAYER_SPRITE_WALK_OFFSET,d1
 
-.isright
-    add.w       d1,d0                 ; add the walk/ladder offset
-    bsr         ShowSprite
-    rts
+      tst.w       Player_Facing(a4)
+      bpl         .rightface
+      add.w       #PLAYER_SPRITE_LEFT_OFFSET,d0  ; left-facing: offset the frame index
 
+.rightface
+      add.w       d1,d0                 ; add walk offset
+      bsr         ShowSprite
+      rts
 
 ;==============================================================================
 ; PlayerTryMove  -  Determine what action the player can take
@@ -1106,6 +1180,7 @@ PlayerMoveActor:
     ; Found the block: advance its tile X position
     move.w      Player_DirectionX(a4),d2
     add.w       d2,Actor_X(a3)        ; actor X += direction
+    move.w      #1,Actor_HasMoved(a3)  ; mark the actor as having moved (for ActionPlayerPush)
 
     ; Update GameMap: clear old cell, set new cell
     mulu        #WALL_PAPER_WIDTH,d1
