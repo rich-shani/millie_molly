@@ -101,13 +101,23 @@ ActionFall:
 ;
 ; Iterates the FallenActors list (populated by ActorFallAll) and for each
 ; actor with Actor_HasFalled set:
-;   1. ClearActor  - erase from current position
+;   1. ClearStaticBlock - restore background behind the actor
 ;   2. Increment Actor_YDec by 1 (smooth fall by one pixel per frame)
-;   3. DrawActor   - redraw at new position
-;   4. If Actor_YDec has reached Actor_FallY (target pixel offset), clear
-;      both fields (fall animation complete for this actor).
+;   3. DrawActor        - redraw at new sub-pixel position
+;   4. When Actor_YDec reaches Actor_FallY: clear fall fields, set
+;      Actor_ImpactTick = 1 to start the landing smoke animation, then
+;      fall through into the impact section below.
 ;
-; Out: d6 = number of actors still in a fall (0 = all done)
+; For each actor with Actor_ImpactTick > 0 (smoke animation in progress):
+;   1. ClearStaticBlock + ActorDrawStatic - restore tile and redraw actor
+;   2. DrawSprite - overlay the current smoke frame (SPRITE_SMOKE_A..D)
+;   3. Increment Actor_ImpactTick; when it exceeds IMPACT_TOTAL_TICKS,
+;      restore tile, redraw actor cleanly, clear Actor_ImpactTick.
+;
+; a2 (FallenActors list pointer) is preserved across all draw calls that
+; corrupt it (PasteTile and DrawSprite both set a2 to their mask pointer).
+;
+; Out: d6 = number of actors still active (falling OR impact animating)
 ;==============================================================================
 
 ActionFallActors:
@@ -123,45 +133,100 @@ ActionFallActors:
     move.l      (a2)+,a3                ; a3 -> actor struct
 
     tst.w       Actor_HasFalled(a3)     ; is this actor still falling?
-    beq         .next                   ; no - already finished
+    beq         .check_impact           ; no fall - check for pending impact animation
 
-    addq.w      #1,d6                   ; count: one more actor still falling
-      
+    addq.w      #1,d6                   ; count: one more actor still active
+
     ; Restore the background tile from ScreenSave before animating
     move.w      Actor_PrevX(a3),d0      ; original tile X coordinate
     move.w      Actor_PrevY(a3),d1      ; original tile Y coordinate
 
-    ; add the current sub-pixel Y offset to get the current pixel position within the fall
-    move.w      Actor_YDec(a3),d2       ; current pixel offset within fall
-
-    ; Add the YDec offset to the tile Y coordinate, divide by 24 (pixels per tile) to get a tile offset
-    ; This gives us the correct tile to blit for the current sub-pixel position of the falling actor.
-
-    moveq       #0,d2                       ; clear d2 (high and low)
-    move.w      Actor_YDec(a3),d2           ; now load YDec safely into low word
-    divu        #24,d2                      ; divide the full 32-bit zero-extended value
+    ; Add the YDec offset to the tile Y coordinate, divide by 24 to get a tile offset.
+    moveq       #0,d2                   ; zero-extend before divu (avoid garbage in high word)
+    move.w      Actor_YDec(a3),d2
+    divu        #24,d2
     add.w       d2,d1
-    bsr         ClearStaticBlock        ; blit background from ScreenSave
+    bsr         ClearStaticBlock        ; restore background from ScreenSave
 
-;    bsr         ClearActor              ; erase from current screen position
-    addq.w      #1,Actor_YDec(a3)      ; advance sub-pixel Y by one pixel
+    addq.w      #1,Actor_YDec(a3)       ; advance sub-pixel Y by one pixel
 
     bsr         DrawActor               ; redraw at new sub-pixel position
 
     ; Has the fall reached its target?
     move.w      Actor_YDec(a3),d0
     cmp.w       Actor_FallY(a3),d0     ; reached target Y offset?
-    bne         .next
+    bne         .next                   ; still falling
 
-    ; Fall complete for this actor
+    ; Fall complete: clean up and start impact smoke animation
     clr.w       Actor_YDec(a3)         ; reset sub-tile offset
-    clr.w       Actor_HasFalled(a3)    ; mark as no longer falling
+    clr.w       Actor_HasFalled(a3)    ; mark fall as done
+    move.w      #1,Actor_ImpactTick(a3) ; start smoke effect (falls through below)
+
+.check_impact
+    tst.w       Actor_ImpactTick(a3)   ; impact animation pending?
+    beq         .next                   ; no - nothing to do
+
+    addq.w      #1,d6                   ; impact in progress: keep ACTION_FALL alive
+
+    ; Compute current smoke animation frame index (0..IMPACT_FRAMES-1)
+    moveq       #0,d0
+    move.w      Actor_ImpactTick(a3),d0
+    subq.w      #1,d0                   ; 0-based tick (0..IMPACT_TOTAL_TICKS-1)
+    divu        #IMPACT_FRAME_TICKS,d0  ; d0.w = frame index (0,1,2,3)
+
+    ; Check if all smoke frames have played
+    cmp.w       #IMPACT_FRAMES,d0
+    bcc         .impact_done            ; frame >= 4: animation complete
+
+    ; --- Draw smoke frame ---
+    ; Preserve a2: PasteTile (via ActorDrawStatic) and DrawSprite both set a2
+    ; to their mask pointer, corrupting the FallenActors list position.
+    PUSH        a2
+
+    ; 1. Restore background from ScreenSave (clears previous smoke frame)
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    bsr         ClearStaticBlock
+
+    ; 2. Redraw actor with transparency (ScreenSave now clean underneath)
+    bsr         ActorDrawStatic
+
+    ; 3. Compute smoke sprite index: SPRITE_SMOKE_A + frame_index
+    moveq       #0,d2
+    move.w      Actor_ImpactTick(a3),d2
+    subq.w      #1,d2
+    divu        #IMPACT_FRAME_TICKS,d2  ; d2.w = frame index
+    add.w       #SPRITE_SMOKE_A,d2      ; d2 = sprite sheet index
+
+    ; 4. Pixel position of actor's landed tile
+    move.w      Actor_X(a3),d0
+    mulu        #24,d0                  ; pixel X
+    move.w      Actor_Y(a3),d1
+    mulu        #24,d1                  ; pixel Y
+
+    ; 5. Blit smoke frame over actor (transparent overlay using SpriteMask)
+    bsr         DrawSprite
+
+    POP         a2                      ; restore FallenActors list pointer
+
+    addq.w      #1,Actor_ImpactTick(a3) ; advance to next tick
+    bra         .next
+
+.impact_done
+    ; All smoke frames shown: restore clean state (actor visible, no smoke)
+    PUSH        a2
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    bsr         ClearStaticBlock        ; clear last smoke frame
+    bsr         ActorDrawStatic         ; redraw actor cleanly
+    POP         a2
+    clr.w       Actor_ImpactTick(a3)    ; mark animation complete
 
 .next
     dbra        d7,.loop
 
 .exit
-    tst.w       d6                      ; return d6 (caller tests for fall completion)
+    tst.w       d6                      ; return d6 (0 = all falls and impacts done)
     rts
 
 

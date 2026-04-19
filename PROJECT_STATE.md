@@ -4,7 +4,7 @@ description: Current state of Millie and Molly Amiga port - completed fixes, wor
 type: project
 ---
 
-# Millie and Molly Amiga Port - Project State (April 18, 2026)
+# Millie and Molly Amiga Port - Project State (April 19, 2026)
 
 ## Overview
 Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written in 68000 assembly with Blitter/Copper/DMA programming. Game is functionally playable with core mechanics working.
@@ -24,12 +24,42 @@ Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written 
 - **Two-player initialization**: Both players now visible at level start - one active, one frozen
 
 ### In Progress / TODO
+- **Actor fall blit mask bug**: When an actor falls and lands, the background under the tile is not shown correctly at the final position (transparent areas show stale actor graphics instead of background). Root cause identified (ClearStaticBlock uses tile-rounded Y coordinates, missing sub-pixel spillover into the landing tile) but fix not yet verified — previous attempt reverted.
 - Enemy destruction animations
 - Fall animation easing refinement
 - Rewind/undo mechanic
 - Game presentation polish
 - Handle F3 to start game in TitleRun (partially implemented - see last commit)
 - Fix missing player start positions in some level data files
+
+## Session 3 Work (April 19, 2026)
+
+### Actor Landing Impact Animation (NEW FEATURE)
+
+When an actor finishes a fall, a 4-frame smoke/puff animation now plays over the landed tile.
+
+**Implementation:**
+- Added `Actor_ImpactTick` (word) to Actor struct in `struct.asm` — 0 = idle, 1..16 = animation in progress
+- Added smoke sprite constants to `const.asm`:
+  - `SPRITE_SMOKE_A..D = 98..101` (row 8, cols 2–5 of the 12×12 sprites.bin sprite sheet)
+  - `IMPACT_FRAMES = 4`, `IMPACT_FRAME_TICKS = 4`, `IMPACT_TOTAL_TICKS = 16` (~320ms at 50Hz)
+- Extended `ActionFallActors` in `player.asm`:
+  - On fall completion: sets `Actor_ImpactTick = 1` and falls through immediately to the impact section (first smoke frame fires on the same tick the actor lands)
+  - `.check_impact` section (new): iterates FallenActors list checking `ImpactTick > 0`; each tick does `ClearStaticBlock` + `ActorDrawStatic` + `DrawSprite` (smoke overlay); clears cleanly when done
+  - `d6` counter includes impact-active actors so `ACTION_FALL` state remains active until all smoke animations complete
+  - `a2` (FallenActors list pointer) is explicitly saved/restored with `PUSH`/`POP` around draw calls because both `PasteTile` (via `ActorDrawStatic`) and `DrawSprite` overwrite `a2` with their mask buffer pointer
+
+**Sprite sheet note**: Smoke frames confirmed at indices 98–101 (row 8, cols 2–5 of the 12×12 grid). Indices are defined only in `const.asm` so they can be adjusted without touching any other code.
+
+### Actor Fall Blit Mask Investigation
+
+Investigated why the background under a landed actor tile isn't showing correctly. Root cause:
+- `ClearStaticBlock` uses `PrevY + YDec/24` (tile-rounded) to clear the background each frame
+- `DrawActor` draws at sub-pixel position `PrevY*24 + YDec`, which spills into the next tile for any `YDec % 24 != 0`
+- The spill rows are never cleared, so the landing tile accumulates stale actor graphics
+- When `DrawActor` blits the final frame with `$fca` minterm, transparent areas read the stale `C` channel content instead of background
+
+An attempted fix (using `ClearActor` instead of `ClearStaticBlock`) was reverted as it didn't work as expected. Further investigation needed.
 
 ## Recent Fixes (Session 2)
 
@@ -176,11 +206,12 @@ clr.w         Player_ActionFrame(a0)
 - Comprehensive README.md with full technical architecture, gameplay features, blitter details, and build instructions
 
 ## Next Steps if Resuming
-1. **Build and test**: Assemble code to verify no syntax errors
-2. **Test two-player visibility**: Check that both players appear at level start in levels with both player start markers
-3. **Fix missing player starts**: Use inspect_levels.py to find levels missing BLOCK_MILLIESTART or BLOCK_MOLLYSTART
-4. **Test level transitions**: Verify players start at correct positions in levels 26-29 and others
-5. **Polish remaining animations**: Enemy destruction, fall easing, enter/leave ladder transitions
+1. **Build and test**: Assemble code to verify no syntax errors (`vasmm68k_mot -Fhunkexe -o main.exe main.asm`)
+2. **Test landing impact animation**: Push a block so it falls — verify smoke puff plays over the landed tile. Adjust `SPRITE_SMOKE_A..D` indices in `const.asm` if the wrong sprite frames appear
+3. **Fix actor fall blit mask bug**: Background under the landed actor tile shows stale graphics. Need to properly clear the sub-pixel Y spillover area before the final `DrawActor` call
+4. **Fix missing player starts**: Use `inspect_levels.py missing` to find levels missing BLOCK_MILLIESTART or BLOCK_MOLLYSTART
+5. **Test level transitions**: Verify players start at correct positions in levels 26-29 and others
+6. **Polish remaining animations**: Enemy destruction, fall easing, enter/leave ladder transitions
 
 ## Build & Test
 ```bash
@@ -200,4 +231,4 @@ uae --fullscreen
 6. **Level data integrity**: Player start positions must be defined in level data files; levels missing these will default to (0,0)
 
 ## Session Continuity
-This file captures the project state as of April 18, 2026 (Session 2). Major gameplay mechanics are working. Two recent bug fixes addressed player initialization at level transitions and two-player visibility at level start. Code is well-commented and structured. Next session should focus on testing the fixes and addressing remaining level data issues.
+This file captures the project state as of April 19, 2026 (Session 3). Core gameplay is working. Session 3 added the actor landing impact animation (smoke puff effect) and investigated the actor fall blit mask bug. The smoke animation is implemented but untested in UAE — sprite indices 132–135 are provisional. The fall blit mask bug root cause is understood but not yet fixed. Next session should build, test the smoke animation, and revisit the fall blit mask issue.

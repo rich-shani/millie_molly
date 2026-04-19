@@ -92,6 +92,27 @@ PLAYER_SPRITE_LADDER_IDLE   = 19   ; single frame used when frozen on ladder
 PLAYER_SPRITE_FALL_OFFSET   = 28   ; frame offset for falling animation
 PLAYER_SPRITE_WALK_OFFSET   = 4    ; frame offset for walking animation
 
+;------------------------------------------------------------------------------
+; Landing impact smoke animation
+;
+; When an actor finishes a fall, a 4-frame smoke animation (SPRITE_SMOKE_A..D)
+; is blitted over the actor's landed tile for IMPACT_FRAME_TICKS VBlanks per
+; frame (16 VBlanks total at 50 Hz ≈ 320 ms).
+;
+; Sprite sheet indices 98..101 are the smoke cloud frames in sprites.bin
+; (row 8, columns 2..5 of the 12×12 grid).
+;
+; IMPACT_TOTAL_TICKS = IMPACT_FRAME_TICKS * IMPACT_FRAMES = 16
+;   Actor_ImpactTick counts 1..IMPACT_TOTAL_TICKS while animating; 0 = idle.
+;------------------------------------------------------------------------------
+SPRITE_SMOKE_A      = 98    ; smoke puff frame 0 (row 8, col 2)
+SPRITE_SMOKE_B      = 99    ; smoke puff frame 1 (row 8, col 3)
+SPRITE_SMOKE_C      = 100   ; smoke puff frame 2 (row 8, col 4)
+SPRITE_SMOKE_D      = 101   ; smoke puff frame 3 (row 8, col 5)
+IMPACT_FRAMES       = 4     ; number of smoke animation frames
+IMPACT_FRAME_TICKS  = 4     ; VBlanks displayed per frame
+IMPACT_TOTAL_TICKS  = IMPACT_FRAME_TICKS*IMPACT_FRAMES   ; 16 total VBlanks
+
 
 ;------------------------------------------------------------------------------
 ; Sine / easing table parameters.

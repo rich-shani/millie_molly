@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(python3 tools/inspect_levels.py 26)"
+      "Bash(python3 tools/inspect_levels.py 26)",
+      "Bash(ls:*)"
     ]
   }
 }
