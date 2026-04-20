@@ -1935,6 +1935,58 @@ WipeBlitBlack:
 
 
 ;==============================================================================
+; WipeBlitWhite  -  One-fill one tile on DisplayScreen (white wipe step)
+;
+; One-fills the 24x24-pixel tile area at the given tile coordinates using
+; the blitter.  Uses minterm $FA (A|C): guard bits outside the 24-pixel
+; tile boundary are preserved (D = C); pixels inside are set to 1 (white).
+;
+; A is constant $FFFF (USEA=0, BLTADAT=$FFFF), gated per-word by
+; BLTAFWM/BLTALWM to restrict the fill to the 24-pixel tile width.
+;
+; On entry:
+;   d0 = tile X (0..13)
+;   d1 = tile Y (0..8)
+;   a5 = Variables base
+;   a6 = $dff000
+;==============================================================================
+
+WipeBlitWhite:
+    PUSHALL
+
+    lea         DisplayScreen,a1
+
+    mulu        #24,d0                  ; pixel X
+    mulu        #24,d1                  ; pixel Y
+
+    mulu        #SCREEN_STRIDE,d1
+    move.w      d0,d2
+    asr.w       #3,d2                   ; byte column = X / 8
+    add.w       d2,d1
+    add.l       d1,a1                   ; a1 -> destination in DisplayScreen
+
+    move.l      #$ffffff00,d1           ; mask: BLTAFWM=$FFFF, BLTALWM=$FF00 (shift=0)
+    and.w       #$f,d0
+    beq         .blit
+    move.l      #$00ffffff,d1           ; mask: BLTAFWM=$00FF, BLTALWM=$FFFF (shift=8)
+
+.blit
+    WAITBLIT
+    move.l      #$03fa0000,BLTCON0(a6) ; USEC|USED, LF=$FA (A|C), shift=0, BLTCON1=0
+    move.l      d1,BLTAFWM(a6)         ; BLTAFWM + BLTALWM word masks
+    move.w      #-1,BLTADAT(a6)        ; A = constant $FFFF (gated by BLTAFWM/BLTALWM)
+    move.w      #0,BLTAMOD(a6)         ; A modulo = 0 (constant, no DMA advance)
+    move.l      a1,BLTCPT(a6)          ; C = DisplayScreen (guard bits preserved)
+    move.l      a1,BLTDPT(a6)          ; D = DisplayScreen (output)
+    move.w      #TILE_BLT_MOD,BLTCMOD(a6)
+    move.w      #TILE_BLT_MOD,BLTDMOD(a6)
+    move.w      #TILE_BLT_SIZE,BLTSIZE(a6)
+
+    POPALL
+    rts
+
+
+;==============================================================================
 ; Level Wipe Transition  -  Screen wipe effect at end of each level
 ;
 ;
@@ -2007,9 +2059,6 @@ LevelSetup:
     move.w      d0,2(a0)                ; SPRxPTH
     add.l       #8,a0                   ; next copper sprite entry
     dbra        d7,.patch_sprites
-
-    ; Advance to wipe state
-  ;  move.w      #LEVEL_WIPE,GameStatus(a5)
 
     POPALL
     rts
@@ -2111,6 +2160,8 @@ LevelTransitionRun:
 .hold_done
     ; Hold complete - build next level and set up the reveal
     bsr         LevelRevealSetup        ; sets LEVEL_REVEAL and primes WipeTileX/Y
+  ;  bsr LevelSetup
+    move.w      #LEVEL_REVEAL,GameStatus(a5)
     rts
 
     ; -----------------------------------------------------------------------
@@ -2364,18 +2415,62 @@ WipeReverseBuffer:
 .rev_loop
     cmp.w       d1,d0
     bge         .rev_done
+
+    ; reverse TileX coordinates
     move.b      (a0,d0.w),d2
     move.b      (a0,d1.w),(a0,d0.w)
     move.b      d2,(a0,d1.w)
+    ; reverse TileY coordinates
     move.b      (a1,d0.w),d2
     move.b      (a1,d1.w),(a1,d0.w)
     move.b      d2,(a1,d1.w)
+
     addq.w      #1,d0
     subq.w      #1,d1
     bra         .rev_loop
 .rev_done
     rts
 
+;==============================================================================
+; LevelRevealSetup  -  Build the new level and arm the reveal pass
+;
+; Called from LevelTransitionRun when the LEVEL_HOLD countdown reaches zero.
+;
+; Builds the new level's background into NonDisplayScreen only (CopySaveToStatic,
+; DrawStaticActors, and CopyStaticToBuffers are skipped so DisplayScreen stays
+; black from the completed wipe).  Then reverses WipeTileX/Y to give the
+; directional opposite traversal order for the reveal, resets WipeTilesDone,
+; and advances GameStatus to LEVEL_REVEAL.
+;
+; On entry: a5 = Variables base, a6 = CUSTOM.
+;==============================================================================
+
+LevelRevealSetup:
+    PUSHALL
+
+    ; draw the new map into the NonDisplayScreen
+    bsr         DrawMap 
+
+    ; Initialise tiles done back to 0
+    clr.w       WipeTilesDone(a5)
+
+    ; take the Wipe Pattern (used to clear the last level) to determine
+    ; the Reveal pattern - ie the opposite effect
+	moveq  #0,d0
+	move.b WipePattern(a5),d0
+	lea    WipeOppositeTable(pc),a0
+	move.b (a0,d0.w),d0              ; d0 = opposite pattern index
+
+    ; Dispatch to the appropriate fill routine via absolute pointer table
+    lsl.w       #2,d0                   ; d0 = pattern * 4 (longword table index)
+    lea         .fill_ptrs(pc),a0
+    move.l      (a0,d0.w),a0            ; a0 = fill routine address
+    jsr         (a0)                    ; fill WipeTileX and WipeTileY arrays
+
+    POPALL
+    rts
+
+    
 
 ;==============================================================================
 ; WipeOppositeTable  -  Maps each wipe pattern to its directional inverse
@@ -2400,31 +2495,3 @@ WipeOppositeTable:
     dc.b    WIPE_CENTER_IN      ; opposite of WIPE_CENTER_OUT  (6)
     dc.b    WIPE_CENTER_OUT     ; opposite of WIPE_CENTER_IN   (7)
     even                        ; ensure word-aligned for following code
-
-
-;==============================================================================
-; LevelRevealSetup  -  Build the new level and arm the reveal pass
-;
-; Called from LevelTransitionRun when the LEVEL_HOLD countdown reaches zero.
-;
-; Builds the new level's background into NonDisplayScreen only (CopySaveToStatic,
-; DrawStaticActors, and CopyStaticToBuffers are skipped so DisplayScreen stays
-; black from the completed wipe).  Then reverses WipeTileX/Y to give the
-; directional opposite traversal order for the reveal, resets WipeTilesDone,
-; and advances GameStatus to LEVEL_REVEAL.
-;
-; On entry: a5 = Variables base, a6 = CUSTOM.
-;==============================================================================
-
-LevelRevealSetup:
-    PUSHALL
-
-    bsr         WipeReverseBuffer       ; reverse WipeTileX/Y for directional opposite order
-    clr.w       WipeTilesDone(a5)       ; reset tile counter for the reveal pass
-
-    bsr DrawMap 
-
-    move.w      #LEVEL_REVEAL,GameStatus(a5)
-
-    POPALL
-    rts
