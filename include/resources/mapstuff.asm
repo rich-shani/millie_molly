@@ -253,6 +253,8 @@ LevelInit:
     move.b        LevelId+1(a5),d0       ; mix in low byte of level ID
     move.l        d0,RandomSeed(a5)      ; store as new seed
 
+    clr.w         CloudActorsCount(a5)   ; reset cloud animation list for new level
+
     bsr           WallPaperLoadBase      ; load border frame + clear ladder/shadow arrays
     bsr           WallPaperLoadLevel     ; copy level data into GameMap + WallpaperWork
     bsr           LevelInitPlayers       ; scan GameMap for player starts; set Player_X/Y

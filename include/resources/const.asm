@@ -304,7 +304,7 @@ SPRITE_SIZE         = 4+(TILE_HEIGHT*4)+4       ; 104 bytes per sprite structure
 ;------------------------------------------------------------------------------
 ; Default starting level (0-based index into levels.bin).
 ;------------------------------------------------------------------------------
-START_LEVEL         = 10
+START_LEVEL         = 18
 
 
 ;------------------------------------------------------------------------------
@@ -445,6 +445,20 @@ ACTION_MOVE         = 1
 ACTION_FALL         = 2
 ACTION_PLAYERPUSH   = 3
 ACTION_INTRO        = 4     ; level intro star animation
+ACTION_BURST        = 5     ; burst of stars radiating from Molly's start tile
+
+;------------------------------------------------------------------------------
+; Enemy tile animation
+;
+; TILE_ENEMYFALL and TILE_ENEMYFLOAT each have 4 animation frames (A..D).
+; AnimateEnemies cycles through them at ENEMY_ANIM_TICKS VBlanks per frame,
+; giving a 2fps animation rate on 50Hz PAL hardware.
+;   frame_index = (TickCounter / ENEMY_ANIM_TICKS) & 3
+;------------------------------------------------------------------------------
+ENEMY_ANIM_TICKS    = 12    ; VBlanks per enemy animation frame
+
+BURST_STAR_COUNT    = 8     ; number of radial burst stars (one per 45°)
+BURST_LIFE          = 50    ; VBlanks the burst runs (~1.0s PAL)
 
 
 ;------------------------------------------------------------------------------
@@ -465,7 +479,32 @@ ACTION_INTRO        = 4     ; level intro star animation
 ;------------------------------------------------------------------------------
 SPRITE_STAR_LARGE   = 143   ; large blue star       (row 11, col 11)
 SPRITE_STAR_SMALL   = 141   ; small white star      (row 11, col  9)
+SPRITE_STAR_TINY    = 140   ; smaller white star    (row 11, col  8)
 INTRO_STEP_TICKS    = 6     ; VBlanks per one-tile step
 INTRO_TRAIL_LIFE    = 40    ; VBlanks each trail particle remains visible
 INTRO_TRAIL_MAX     = 16    ; trail pool size (>= INTRO_TRAIL_LIFE/INTRO_STEP_TICKS = 10 active steps)
 INTRO_HOLD_TICKS    = 60    ; VBlanks the large star holds at the target before the intro ends (~1.2s PAL)
+
+
+;------------------------------------------------------------------------------
+; Enemy death cloud animation
+;
+; When an enemy is killed by the player, a 7-frame cloud animation plays at
+; the enemy's tile position.
+;
+; Sprite sheet (sprites.bin, 12×12 grid, index = row*12 + col):
+;   row 11, cols 0..6 → indices 132..138
+;
+; CLOUD_TOTAL_TICKS = CLOUD_FRAME_TICKS * CLOUD_FRAMES = 42 VBlanks (~840ms PAL)
+;   Actor_CloudTick counts 1..CLOUD_TOTAL_TICKS while animating; 0 = idle.
+;------------------------------------------------------------------------------
+SPRITE_CLOUD_A      = 132   ; cloud frame 0  (row 11, col 0)
+SPRITE_CLOUD_B      = 133   ; cloud frame 1  (row 11, col 1)
+SPRITE_CLOUD_C      = 134   ; cloud frame 2  (row 11, col 2)
+SPRITE_CLOUD_D      = 135   ; cloud frame 3  (row 11, col 3)
+SPRITE_CLOUD_E      = 136   ; cloud frame 4  (row 11, col 4)
+SPRITE_CLOUD_F      = 137   ; cloud frame 5  (row 11, col 5)
+SPRITE_CLOUD_G      = 138   ; cloud frame 6  (row 11, col 6)
+CLOUD_FRAMES        = 7
+CLOUD_FRAME_TICKS   = 6
+CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 42

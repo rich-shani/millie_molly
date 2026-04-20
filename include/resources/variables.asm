@@ -213,4 +213,28 @@ IntroTrailX:          rs.w    INTRO_TRAIL_MAX
 IntroTrailY:          rs.w    INTRO_TRAIL_MAX
 IntroTrailLife:       rs.w    INTRO_TRAIL_MAX
 
+;------------------------------------------------------------------------------
+; Burst star animation state
+;
+; After the large intro star holds at Molly's tile, BURST_STAR_COUNT small stars
+; radiate outward in a circle (one per 45°) for BURST_LIFE frames.
+; Positions are stored in 16.16 fixed-point (upper word = integer pixel).
+; Velocity is applied each frame via add.l from the BurstVelTable in player.asm.
+;------------------------------------------------------------------------------
+BurstLife:            rs.w    1                   ; countdown (BURST_LIFE..0)
+BurstStarX:           rs.l    BURST_STAR_COUNT    ; 16.16 FP pixel X per star
+BurstStarY:           rs.l    BURST_STAR_COUNT    ; 16.16 FP pixel Y per star
+
+;------------------------------------------------------------------------------
+; Cloud death animation actor list
+;
+; CloudActors      - array of actor pointers for actors currently playing a
+;                   cloud death animation (Actor_CloudTick > 0).  Filled by
+;                   PlayerKillActor; processed by ActionCloudActors each frame.
+; CloudActorsCount - number of valid entries in CloudActors (never compacted;
+;                   entries with CloudTick=0 are skipped by the processor).
+;------------------------------------------------------------------------------
+CloudActors:          rs.l    MAP_SIZE    ; up to 88 cloud animation actor pointers
+CloudActorsCount:     rs.w    1           ; number of actors ever added (reset at level load)
+
 Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes

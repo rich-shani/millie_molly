@@ -571,3 +571,88 @@ SortActors:
 
 .exit
     rts
+
+
+;==============================================================================
+; AnimateEnemies  -  Cycle enemy tile animation frames (called every VBlank)
+;
+; Enemies (BLOCK_ENEMYFALL and BLOCK_ENEMYFLOAT) have four tile frames each
+; (A..D).  This routine advances the displayed frame every ENEMY_ANIM_TICKS
+; VBlanks (25 ticks = 0.5s = 2fps on PAL 50Hz).
+;
+; All living enemies animate in sync using:
+;   frame_index = (TickCounter / ENEMY_ANIM_TICKS) & 3
+;
+; Actors that are currently falling (Actor_HasFalled) or playing an impact
+; smoke animation (Actor_ImpactTick) are skipped — their rendering is owned
+; by ActionFallActors for that period.
+;
+; Per animated actor:
+;   1. Update Actor_SpriteOffset to the new frame tile index.
+;   2. ClearStaticBlock  - restore background from ScreenSave.
+;   3. ActorDrawStatic   - blit new tile into ScreenStatic.
+;
+; PUSHM d5/a2 / POPM d5/a2 guards ActorDrawStatic (PasteTile clobbers a2).
+; ClearStaticBlock uses PUSHALL internally so all registers survive it.
+;==============================================================================
+
+AnimateEnemies:
+    ; Only act on ENEMY_ANIM_TICKS boundaries
+    moveq       #0,d0
+    move.w      TickCounter(a5),d0
+    divu        #ENEMY_ANIM_TICKS,d0    ; quotient in d0.w, remainder in upper word
+    swap        d0                      ; remainder now in d0.w
+    tst.w       d0
+    bne         .exit                   ; not an animation tick this frame
+
+    swap        d0                      ; quotient back in d0.w
+    and.w       #3,d0                   ; d0 = frame index 0..3
+    move.w      d0,d5                   ; save in d5 for duration of loop
+
+    move.w      ActorCount(a5),d7
+    subq.w      #1,d7
+    bmi         .exit                   ; no actors
+    lea         ActorList(a5),a2        ; a2 -> sorted actor pointer array
+
+.loop
+    move.l      (a2)+,a3               ; a3 -> actor struct
+
+    tst.w       Actor_Status(a3)
+    beq         .next                   ; dead: skip
+    tst.w       Actor_HasFalled(a3)
+    bne         .next                   ; falling: ActionFallActors owns rendering
+    tst.w       Actor_ImpactTick(a3)
+    bne         .next                   ; impact smoke active: skip
+
+    ; Check enemy type and compute new tile
+    move.w      Actor_Type(a3),d1
+    cmp.w       #BLOCK_ENEMYFALL,d1
+    beq         .fall_frame
+    cmp.w       #BLOCK_ENEMYFLOAT,d1
+    bne         .next                   ; not an enemy type: skip
+
+    move.w      d5,d2
+    add.w       #TILE_ENEMYFLOATA,d2    ; FLOAT: base + frame index
+    bra         .do_update
+
+.fall_frame
+    move.w      d5,d2
+    add.w       #TILE_ENEMYFALLA,d2     ; FALL: base + frame index
+
+.do_update
+    move.w      d2,Actor_SpriteOffset(a3)   ; store new frame index in actor
+
+    ; Restore background then blit new tile
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    bsr         ClearStaticBlock            ; PUSHALL/POPALL: all regs preserved
+
+    PUSHM       d5/a2                       ; ActorDrawStatic -> PasteTile clobbers a2
+    bsr         ActorDrawStatic
+    POPM        d5/a2
+
+.next
+    dbra        d7,.loop
+
+.exit
+    rts

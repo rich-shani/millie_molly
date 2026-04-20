@@ -126,6 +126,7 @@ Actor_Static:             rs.w    1   ; 1 = drawn once into ScreenStatic (no upd
 Actor_Delta:              rs.l    1   ; fixed-point easing accumulator (push anim)
 Actor_FallY:              rs.w    1   ; pixel target for end of fall animation
 Actor_ImpactTick:         rs.w    1   ; landing smoke tick: 0=idle, 1..IMPACT_TOTAL_TICKS=animating
+Actor_CloudTick:          rs.w    1   ; cloud death tick: 0=idle, 1..CLOUD_TOTAL_TICKS=animating
 Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 
 

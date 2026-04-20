@@ -57,6 +57,7 @@
 ;   2 = ACTION_FALL        -> ActionFall
 ;   3 = ACTION_PLAYERPUSH  -> ActionPlayerPush
 ;   4 = ACTION_INTRO       -> ActionIntro
+;   5 = ACTION_BURST       -> ActionBurst
 ;
 ; Only one action runs at a time.  Each action handler is responsible for
 ; resetting ActionStatus to ACTION_IDLE when it completes.
@@ -72,6 +73,7 @@ PlayerLogic:
     dc.w        ActionFall-.i           ; state 2: falling
     dc.w        ActionPlayerPush-.i     ; state 3: push animation
     dc.w        ActionIntro-.i          ; state 4: level intro star animation
+    dc.w        ActionBurst-.i          ; state 5: burst star animation
 
 
 ;==============================================================================
@@ -627,16 +629,34 @@ ActionIntro:
     subq.w      #1,IntroDone(a5)
     bne         .no_step                ; still holding: done for this frame
 
-    ; Hold expired: erase large star, repair actors, show player, go IDLE
+    ; Hold expired: erase large star and trail, then launch burst animation
     move.w      IntroStarX(a5),d0
     move.w      IntroStarY(a5),d1
     bsr         ClearStaticBlock        ; erase large star from ScreenStatic
     bsr         IntroClearAllTrail      ; clear any surviving trail particles
-    bsr         DrawStaticActors        ; repair any actor tiles the intro covered
-    move.l      PlayerPtrs(a5),a4
-    moveq       #0,d0
-    bsr         ShowSprite
-    move.w      #ACTION_IDLE,ActionStatus(a5)
+
+    ; Initialise all burst stars at the centre pixel of the star's tile
+    ; 16.16 FP: mulu gives pixel in lower word; add 12 for tile centre; swap to upper word
+    move.w      IntroStarX(a5),d0
+    mulu        #24,d0
+    add.w       #12,d0                  ; centre pixel X of the tile
+    swap        d0                      ; 16.16 FP: pixel in upper word, zero fraction
+
+    move.w      IntroStarY(a5),d1
+    mulu        #24,d1
+    add.w       #12,d1                  ; centre pixel Y
+    swap        d1
+
+    lea         BurstStarX(a5),a0
+    lea         BurstStarY(a5),a1
+    moveq       #BURST_STAR_COUNT-1,d7
+.burst_init:
+    move.l      d0,(a0)+
+    move.l      d1,(a1)+
+    dbra        d7,.burst_init
+
+    move.w      #BURST_LIFE,BurstLife(a5)
+    move.w      #ACTION_BURST,ActionStatus(a5)
     rts
 
 
@@ -665,6 +685,241 @@ IntroClearAllTrail:
 
 .next
     dbra        d7,.loop
+    rts
+
+
+;==============================================================================
+; ActionBurst  -  Radial burst star animation (ACTION_BURST state)
+;
+; Called every VBlank while ActionStatus = ACTION_BURST.
+;
+; BURST_STAR_COUNT (8) small stars radiate outward from Molly's tile in a circle
+; (one star per 45°) for BURST_LIFE frames.  Positions are stored in 16.16
+; fixed-point (upper word = integer pixel); velocities from BurstVelTable are
+; added each frame.  When BurstLife expires the stars are cleared, actors and
+; the player sprite are shown, and the state returns to ACTION_IDLE.
+;
+; 16.16 velocity encoding:
+;   Cardinal (0°/90°/180°/270°): 131072 per active axis  (2.0 px/frame)
+;   Diagonal (45° etc.):          92682 per axis          (√2 * 0.707 * 2 = 2.0 px/frame radial)
+;
+; Register use:
+;   d7 = loop index (BURST_STAR_COUNT-1..0)
+;   d6 = position array byte offset = d7 * 4
+;   d5 = velocity table byte offset = d7 * 8
+;   d3 = current/new pixel X (integer word, extracted by swap)
+;   d4 = current/new pixel Y
+;   ClearStaticBlock : PUSHALL/POPALL — preserves all
+;   DrawSprite       : clobbers a0-a2; preserves d0-d7, a3-a6
+;==============================================================================
+
+ActionBurst:
+    subq.w      #1,BurstLife(a5)
+    beq         .end_burst              ; life just hit 0 — clean up and exit
+
+    ; --- Per-frame loop: clear old pos, update, draw new pos ---
+    moveq       #BURST_STAR_COUNT-1,d7
+.star_loop:
+    move.w      d7,d6
+    lsl.w       #2,d6                   ; d6 = index * 4 (longword offset)
+    move.w      d7,d5
+    lsl.w       #3,d5                   ; d5 = index * 8 (velocity table offset)
+
+    ; Read current pixel position
+    lea         BurstStarX(a5),a0
+    move.l      (a0,d6.w),d3
+    swap        d3                      ; d3.w = integer pixel X
+
+    lea         BurstStarY(a5),a1
+    move.l      (a1,d6.w),d4
+    swap        d4                      ; d4.w = integer pixel Y
+
+    ; Clear tile at current position (if on screen)
+    move.w      d3,d0
+    blt         .skip_clear             ; pixel X < 0: off-screen left
+    cmp.w       #SCREEN_WIDTH,d0
+    bge         .skip_clear             ; off-screen right
+    move.w      d4,d1
+    blt         .skip_clear             ; pixel Y < 0: off-screen top
+    cmp.w       #SCREEN_HEIGHT,d1
+    bge         .skip_clear             ; off-screen bottom
+    ext.l       d0
+    divu        #24,d0                  ; d0.w = tile X
+    move.w      d4,d1
+    ext.l       d1
+    divu        #24,d1                  ; d1.w = tile Y
+    bsr         ClearStaticBlock        ; restore tile from ScreenSave
+
+.skip_clear:
+    ; Add velocity to stored 16.16 position
+    lea         BurstVelTable(pc),a2
+    lea         BurstStarX(a5),a0
+    lea         BurstStarY(a5),a1
+    move.l      (a2,d5.w),d0
+    add.l       d0,(a0,d6.w)            ; BurstStarX[i] += VX
+    move.l      4(a2,d5.w),d0
+    add.l       d0,(a1,d6.w)            ; BurstStarY[i] += VY
+
+    ; Read updated pixel position for drawing
+    move.l      (a0,d6.w),d3
+    swap        d3                      ; d3.w = new pixel X
+    move.l      (a1,d6.w),d4
+    swap        d4                      ; d4.w = new pixel Y
+
+    ; Draw star at new position (if on screen)
+    move.w      d3,d0
+    blt         .skip_draw
+    cmp.w       #SCREEN_WIDTH,d0
+    bge         .skip_draw
+    move.w      d4,d1
+    blt         .skip_draw
+    cmp.w       #SCREEN_HEIGHT,d1
+    bge         .skip_draw
+    move.w      #SPRITE_STAR_TINY,d2
+    bsr         DrawSprite              ; clobbers a0-a2; a0/a1 reloaded next iteration
+
+.skip_draw:
+    dbra        d7,.star_loop
+    rts
+
+    ; --- Burst complete: clear remaining stars, show player, go IDLE ---
+.end_burst:
+    moveq       #BURST_STAR_COUNT-1,d7
+.clear_final:
+    move.w      d7,d6
+    lsl.w       #2,d6
+    lea         BurstStarX(a5),a0
+    lea         BurstStarY(a5),a1
+    move.l      (a0,d6.w),d3
+    swap        d3                      ; d3.w = pixel X
+    move.l      (a1,d6.w),d4
+    swap        d4                      ; d4.w = pixel Y
+    move.w      d3,d0
+    blt         .skip_final
+    cmp.w       #SCREEN_WIDTH,d0
+    bge         .skip_final
+    move.w      d4,d1
+    blt         .skip_final
+    cmp.w       #SCREEN_HEIGHT,d1
+    bge         .skip_final
+    ext.l       d0
+    divu        #24,d0
+    move.w      d4,d1
+    ext.l       d1
+    divu        #24,d1
+    bsr         ClearStaticBlock
+.skip_final:
+    dbra        d7,.clear_final
+
+    bsr         DrawStaticActors        ; restore actor tiles cleared during burst
+    move.l      PlayerPtrs(a5),a4
+    moveq       #0,d0
+    bsr         ShowSprite
+    move.w      #ACTION_IDLE,ActionStatus(a5)
+    rts
+
+
+; Velocity table for ActionBurst — 8 directions, 45° apart.
+; Format: two longwords per entry (VX, VY) in 16.16 fixed-point.
+; Speed = 0.5 px/frame radial — stars stay within ~25px of origin over BURST_LIFE frames:
+;   Cardinal : 32768 (0.5 * 65536)
+;   Diagonal : 23170 (0.5 * cos(45°) * 65536 = 0.5 * 0.7071 * 65536)
+BurstVelTable:
+    dc.l    32768,      0   ; 0°   right
+    dc.l    23170,  23170   ; 45°  down-right
+    dc.l        0,  32768   ; 90°  down
+    dc.l   -23170,  23170   ; 135° down-left
+    dc.l   -32768,      0   ; 180° left
+    dc.l   -23170, -23170   ; 225° up-left
+    dc.l        0, -32768   ; 270° up
+    dc.l    23170, -23170   ; 315° up-right
+
+
+;==============================================================================
+; ActionCloudActors  -  Animate all active cloud death animations
+;
+; Called every frame from GameRun, independent of the main action state.
+; Iterates CloudActors[0..CloudActorsCount-1]; actors with CloudTick=0 are
+; skipped (already done).
+;
+; For each actor with Actor_CloudTick > 0:
+;   1. Compute frame index = (Actor_CloudTick - 1) / CLOUD_FRAME_TICKS
+;   2. If frame >= CLOUD_FRAMES: erase last cloud frame, clear Actor_CloudTick.
+;   3. Otherwise:
+;      a. ClearStaticBlock  - restore background behind the cloud
+;      b. DrawSprite        - blit cloud frame SPRITE_CLOUD_A + frame at bumped pixel pos
+;      c. Increment Actor_CloudTick
+;
+; Registers used: a2 (CloudActors list pointer), a3 (actor struct), d7 (loop counter)
+; a2 is PUSH/POPed around DrawSprite (which clobbers a2).
+;
+; The cloud animation is independent of Actor_Status (actor is already dead);
+; only Actor_CloudTick and Actor_X/Y are referenced.
+;==============================================================================
+
+ActionCloudActors:
+    move.w      CloudActorsCount(a5),d7
+    subq.w      #1,d7
+    bmi         .exit                   ; no cloud actors registered
+
+    lea         CloudActors(a5),a2      ; a2 -> cloud actor pointer array
+
+.loop
+    move.l      (a2)+,a3                ; a3 -> actor struct
+
+    tst.w       Actor_CloudTick(a3)     ; animation active?
+    beq         .next                   ; tick=0: already done, skip
+
+    ; Compute frame index: (tick - 1) / CLOUD_FRAME_TICKS
+    moveq       #0,d0
+    move.w      Actor_CloudTick(a3),d0
+    subq.w      #1,d0                   ; 0-based tick (0..CLOUD_TOTAL_TICKS-1)
+    divu        #CLOUD_FRAME_TICKS,d0   ; d0.w = frame index (0..CLOUD_FRAMES-1+)
+
+    cmp.w       #CLOUD_FRAMES,d0
+    bcc         .cloud_done             ; frame >= 7: all frames shown, clean up
+
+    ; --- Draw cloud frame ---
+    PUSH        a2                      ; DrawSprite clobbers a2; preserve list pointer
+
+    ; 1. Restore background from ScreenSave (clears previous cloud frame)
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    bsr         ClearStaticBlock
+
+    ; 2. Compute sprite index for this frame
+    move.w      Actor_CloudTick(a3),d2
+    subq.w      #1,d2
+    divu        #CLOUD_FRAME_TICKS,d2   ; d2.w = frame index
+    add.w       #SPRITE_CLOUD_A,d2      ; d2 = absolute sprite sheet index
+
+    ; 3. Tile-aligned pixel position
+    move.w      Actor_X(a3),d0
+    mulu        #24,d0                  ; d0 = pixel X
+
+    move.w      Actor_Y(a3),d1
+    mulu        #24,d1                  ; d1 = pixel Y
+
+    bsr         DrawSprite              ; blit cloud frame to ScreenStatic
+
+    POP         a2                      ; restore CloudActors list pointer
+
+    addq.w      #1,Actor_CloudTick(a3)  ; advance to next tick
+    bra         .next
+
+.cloud_done
+    ; Final frame shown: restore background and mark animation complete
+    PUSH        a2
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    bsr         ClearStaticBlock        ; erase last cloud frame from screen
+    POP         a2
+    clr.w       Actor_CloudTick(a3)     ; mark animation done
+
+.next
+    dbra        d7,.loop
+
+.exit
     rts
 
 
@@ -1700,8 +1955,27 @@ PlayerKillActor:
     cmp.w       Actor_Y(a3),d1        ; Y matches?
     bne         .next
 
-    ; Found the actor to kill
-    clr.w       Actor_Status(a3)      ; mark as dead
+    ; Found the actor to kill - register cloud animation for enemy types only
+    move.w      Actor_Type(a3),d2
+    cmp.w       #BLOCK_ENEMYFALL,d2
+    beq         .setup_cloud
+    cmp.w       #BLOCK_ENEMYFLOAT,d2
+    bne         .skip_cloud             ; not an enemy: skip cloud setup
+
+.setup_cloud
+    ; Add to CloudActors list (bounds-checked; max MAP_SIZE entries)
+    move.w      CloudActorsCount(a5),d2
+    cmp.w       #MAP_SIZE,d2
+    bge         .skip_cloud             ; safety: pool full, skip cloud setup
+    lea         CloudActors(a5),a0
+    lsl.w       #2,d2                   ; byte offset = index * 4 (pointer size)
+    move.l      a3,(a0,d2.w)            ; CloudActors[count] = a3
+    addq.w      #1,CloudActorsCount(a5)
+
+    move.w      #1,Actor_CloudTick(a3)  ; start cloud animation on tick 1
+
+.skip_cloud
+    clr.w       Actor_Status(a3)        ; mark as dead
 
     ; Clear the actor's cell in GameMap
     mulu        #WALL_PAPER_WIDTH,d1
@@ -1712,9 +1986,8 @@ PlayerKillActor:
     ; Erase from screen
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bra         ClearStaticBlock      ; tail-call: erase tile from ScreenStatic
-
-    bra         .exit                 ; (unreachable but kept for clarity)
+    bsr         ClearStaticBlock        ; erase tile from ScreenStatic
+    bra         .exit
 
 .next
     dbra        d7,.loop

@@ -54,13 +54,15 @@ GameStatusRun:
 ; GameRun  -  Main gameplay frame handler (called every VBlank in state 2)
 ;
 ; Sequence each frame:
-;   1. LevelTest   - check if LevelComplete flag is set or F1/F2 pressed;
-;                    if so, increment/decrement LevelId and call DrawMap to
-;                    reload and redraw the level.
+;   1. LevelTest      - check if LevelComplete flag is set or F1/F2 pressed;
+;                       if so, increment/decrement LevelId and call DrawMap to
+;                       reload and redraw the level.
 ;   2. UpdateControls - sample keyboard, update ControlsHold / ControlsTrigger.
 ;   3. PlayerLogic    - run the active player's action state machine one step.
 ;                       The active player pointer is loaded from PlayerPtrs(a5)
 ;                       into a4 before calling.
+;   4. ActionCloudActors - animate enemy death cloud puff animations.
+;   5. AnimateEnemies - cycle ENEMYFALL/ENEMYFLOAT tile frames at 2fps.
 ;
 ; Note: DrawPlayers is currently commented out - sprite display is handled
 ; inside PlayerLogic / ActionPlayerFall via ShowSprite.
@@ -75,5 +77,8 @@ GameRun:
 
     move.l      PlayerPtrs(a5),a4   ; a4 -> active player structure (first entry)
     bsr         PlayerLogic          ; run player action state machine for this frame
+
+    bsr         ActionCloudActors    ; animate any pending enemy death cloud animations
+    bsr         AnimateEnemies       ; cycle ENEMYFALL/ENEMYFLOAT tile frames (2fps)
 
     rts
