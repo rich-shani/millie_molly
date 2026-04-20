@@ -1936,13 +1936,10 @@ WipeBlitBlack:
 ;==============================================================================
 ; Level Wipe Transition  -  Screen wipe effect at end of each level
 ;
-; LevelWipeSetup      - called once from LevelTest when LevelComplete is set.
-;                       Picks a random pattern, fills WipeTileX/Y with the
-;                       ordered tile coordinates, hides player sprites, and
-;                       advances GameStatus to LEVEL_WIPE (3).
 ;
-; LevelTransitionRun  - states 3/4/5 handler, called every VBlank from
+; LevelTransitionRun  - states 3/4/5/6 handler, called every VBlank from
 ;                       GameStatusRun.  Dispatches on GameStatus:
+;                       LEVEL_INIT   : setup; first VBlank → LEVEL_WIPE.
 ;                       LEVEL_WIPE  : blits WIPE_SPEED tiles black per frame;
 ;                                     when done sets WipeHoldTick, → LEVEL_HOLD.
 ;                       LEVEL_HOLD  : counts down WipeHoldTick; calls
@@ -1963,21 +1960,20 @@ WipeBlitBlack:
 
 
 ;==============================================================================
-; LevelWipeSetup  -  Initialise and start the level wipe transition
+; LevelSetup  -  Initialise and start the level transition
 ;
-; Called from LevelTest (main.asm) immediately after LevelId is incremented.
+; Called from LevelTransitionRun for the LEVEL_INIT phase, immediately after LevelId is incremented.
 ;
 ; Actions:
 ;   1. Reset WipeTilesDone = 0.
 ;   2. Pick a random wipe pattern using RANDOMWORD and store in WipePattern.
 ;   3. Call the appropriate WipeFill routine to build WipeTileX/Y arrays.
 ;   4. Hide both hardware player sprites (set SpritePtrs to NullSprite).
-;   5. Set GameStatus = LEVEL_WIPE so GameStatusRun dispatches LevelTransitionRun.
 ;
 ; On entry: a5 = Variables base, a6 = CUSTOM.
 ;==============================================================================
 
-LevelWipeSetup:
+LevelSetup:
     PUSHALL
 
     ; Initialise wipe counter (WipeHoldTick is set when wipe completes)
@@ -2012,7 +2008,7 @@ LevelWipeSetup:
     dbra        d7,.patch_sprites
 
     ; Advance to wipe state
-    move.w      #LEVEL_WIPE,GameStatus(a5)
+  ;  move.w      #LEVEL_WIPE,GameStatus(a5)
 
     POPALL
     rts
@@ -2036,25 +2032,37 @@ LevelWipeSetup:
 ; Dispatches to the appropriate phase based on GameStatus.
 ; No player input is processed during any transition state.
 ;
-; LEVEL_WIPE (3) - blit WIPE_SPEED tiles black per frame until all done,
+; LEVEL_INIT (3) - first VBlank after LevelSetup
+;
+; LEVEL_WIPE (4) - blit WIPE_SPEED tiles black per frame until all done,
 ;                  then set WipeHoldTick and advance to LEVEL_HOLD (4).
 ;
-; LEVEL_HOLD (4) - count down WipeHoldTick each frame; when zero call
+; LEVEL_HOLD (5) - count down WipeHoldTick each frame; when zero call
 ;                  LevelRevealSetup which builds the new level and advances
 ;                  to LEVEL_REVEAL (5).
 ;
-; LEVEL_REVEAL (5) - copy WIPE_SPEED tiles per frame from ScreenSave to
+; LEVEL_REVEAL (6) - copy WIPE_SPEED tiles per frame from ScreenSave to
 ;                    ScreenStatic (reverse-wipe).  When done, call
 ;                    DrawStaticActors and return to GameRun (2).
 ;==============================================================================
 
 LevelTransitionRun:
     move.w      GameStatus(a5),d5       ; d5 = current transition state (3/4/5)
+    cmp.w       #LEVEL_WIPE,d5
+    beq         .wipe_phase
     cmp.w       #LEVEL_HOLD,d5
     beq         .hold_phase
     cmp.w       #LEVEL_REVEAL,d5
     beq         .reveal_phase
 
+    ; -----------------------------------------------------------------------
+    ; LEVEL_INIT phase: setup for level transition effect
+    ; -----------------------------------------------------------------------
+    bsr         LevelSetup
+    move.w      #LEVEL_WIPE,GameStatus(a5)
+    rts
+
+.wipe_phase
     ; -----------------------------------------------------------------------
     ; LEVEL_WIPE phase: blit WIPE_SPEED tiles black this frame
     ; -----------------------------------------------------------------------
@@ -2136,7 +2144,7 @@ LevelTransitionRun:
 .reveal_done
     ; All tiles revealed - restore actor tiles and resume gameplay
     bsr         DrawStaticActors        ; blit actor tiles onto ScreenStatic
-    move.w      #LEVEL_RUN,GameStatus(a5)       ; return to GameRun (state 2)
+    move.w      #GAME_RUN,GameStatus(a5)       ; return to GameRun (state 2)
     rts
 
 
