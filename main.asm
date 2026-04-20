@@ -145,7 +145,9 @@ LevelTest:
     beq        .nof2
     addq.w     #1,LevelId(a5)
 .draw
-    bsr        DrawMap
+    bsr         DrawMap
+    bsr         DrawPlayersAndActors
+    bsr         LevelIntroSetup
 .nof2
     rts
 
@@ -240,7 +242,7 @@ Init:
 ; level, and draws the first map.
 ;
 ; Sequence:
-;   1. GameCopperInit  - build cpPlanes / cpPal copper entries for ScreenStatic
+;   1. GameCopperInit  - build cpPlanes / cpPal copper entries for DisplayScreen
 ;   2. GenSpriteMask   - build SpriteMask from the Sprites tile data
 ;   3. Install cpTest copper list and start Copper (COPJMP1)
 ;   4. Set ScreenMemEnd sentinel to -1 (marks uninitialised double-buffer state)
@@ -259,7 +261,10 @@ GameTestInit:
 
     move.w     #START_LEVEL,LevelId(a5)
 
-    bsr        DrawMap
+    bsr         DrawMap
+    bsr         DrawPlayersAndActors
+    bsr         LevelIntroSetup
+
     rts
 
 ;==============================================================================
@@ -361,11 +366,11 @@ VBlankTick:
 ; Called from GameTestInit before the copper list is activated.  Fills in the
 ; runtime-variable fields of cpTest that the assembler left as zeros:
 ;
-;   cpPlanes  - writes the physical addresses of ScreenStatic's five bitplanes
+;   cpPlanes  - writes the physical addresses of DisplayScreen's five bitplanes
 ;               into the BPL1PTH/L .. BPL5PTH/L copper MOVE pairs.
-;               ScreenStatic is a single-buffered display (both ScreenPtrs
+;               DisplayScreen is a single-buffered display (both ScreenPtrs
 ;               entries currently point to Screen1, and the copper is pointed
-;               at ScreenStatic - only one buffer is active in this build).
+;               at DisplayScreen - only one buffer is active in this build).
 ;
 ;   cpPal     - copies the 32 halfword colour values from TilesPal0 (the
 ;               default tile palette) into the COLOR00..COLOR31 copper entries.
@@ -383,7 +388,7 @@ GameCopperInit:
 
     bsr        ClearSprites
 
-    move.l     #ScreenStatic,d0
+    move.l     #DisplayScreen,d0
     lea        cpPlanes,a0
     moveq      #SCREEN_DEPTH-1,d7
 .ploop
@@ -643,11 +648,11 @@ AllFastEnd:
 ;
 ;   Screen1/2       - double-buffer bitplane storage (SCREEN_SIZE each).
 ;                     Currently only Screen1 is used (single-buffer mode).
-;   ScreenStatic    - the composited game frame.  DrawWalls, DrawActors, and
+;   DisplayScreen    - the composited game frame.  DrawWalls, DrawPlayersAndActors, and
 ;                     BlitStar32 all write here; this is what the copper displays.
-;   ScreenSave      - a clean copy of the background (walls + ladders + shadows
-;                     only, no actors).  ClearActor restores ScreenStatic by
-;                     copying from ScreenSave.
+;   NonDisplayScreen      - a clean copy of the background (walls + ladders + shadows
+;                     only, no actors).  ClearActor restores DisplayScreen by
+;                     copying from NonDisplayScreen.
 ;
 ;   ScreenMemEnd    - 200-byte guard region after the last screen buffer.
 ;                     Initialised to -1 as a sentinel; any overrun that writes
@@ -678,10 +683,10 @@ Screen1:
 Screen2:
     ds.b       SCREEN_SIZE
 
-ScreenStatic:
+DisplayScreen:
     ds.b       SCREEN_SIZE
 
-ScreenSave:
+NonDisplayScreen:
     ds.b       SCREEN_SIZE
 
 ScreenMemEnd:

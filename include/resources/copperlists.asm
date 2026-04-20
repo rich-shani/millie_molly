@@ -78,7 +78,7 @@ cpTest:
     dc.w    BPL1MOD,SCREEN_MOD     ; odd-plane modulo  (skip 4 planes between rows)
     dc.w    BPL2MOD,SCREEN_MOD     ; even-plane modulo (same value for non-interlaced)
 
-; cpPlanes  - patched by GameCopperInit to point at ScreenStatic bitplanes.
+; cpPlanes  - patched by GameCopperInit to point at DisplayScreen bitplanes.
 ; Each plane occupies SCREEN_WIDTH_BYTE bytes per row.  The five planes are
 ; stored consecutively: plane0 row0, plane1 row0 ... plane4 row0, plane0 row1 ...
 ; (interleaved layout as required by the SCREEN_MOD modulo scheme).
@@ -169,8 +169,8 @@ cpPal:
 ; Title screen is TITLE_SCREEN_WIDTH x TITLE_SCREEN_HEIGHT pixels.
 ; BPL1MOD / BPL2MOD = TITLE_SCREEN_MOD (wider than game screen).
 ;
-; The star graphics are blitted onto bitplane 4 of ScreenStatic by BlitStar32.
-; The title logo is copied to bitplanes 0-2 of ScreenStatic by TitleSetup.
+; The star graphics are blitted onto bitplane 4 of DisplayScreen by BlitStar32.
+; The title logo is copied to bitplanes 0-2 of DisplayScreen by TitleSetup.
 ; Bitplane 3 is unused (background = colour 0 = black).
 ;==============================================================================
 

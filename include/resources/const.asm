@@ -178,8 +178,8 @@ FETCH_STOP          = $d0          ; bitplane DMA fetch stop
 ; 5 bitplanes = 2^5 = 32 colours.
 ;
 ; Three full-screen buffers are maintained:
-;   ScreenSave   - the clean background (walls, ladders, shadows only)
-;   ScreenStatic - working copy, actors drawn on top of ScreenSave
+;   NonDisplayScreen   - the clean background (walls, ladders, shadows only)
+;   DisplayScreen - working copy, actors drawn on top of NonDisplayScreen
 ;   Screen1/2    - double-buffer for display (currently unused in this build)
 ;
 ; SCREEN_STRIDE  - byte offset between the start of one row (plane 0) and the

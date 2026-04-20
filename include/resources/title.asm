@@ -6,15 +6,15 @@
 ;
 ; Handles game states 0 (TitleSetup) and 1 (TitleRun).
 ;
-; The title screen uses a full-screen ScreenStatic buffer with the same 5-plane
+; The title screen uses a full-screen DisplayScreen buffer with the same 5-plane
 ; format as the game screen, but wider (TITLE_SCREEN_WIDTH = 336+32 pixels) to
 ; provide room for the horizontally-scrolling star animation on plane 4.
 ;
 ; The title logo (title_i.raw) is a 3-plane, 208x88 pixel bitmap.  TitleSetup
-; copies it into the centre of the first three bitplanes of ScreenStatic.
+; copies it into the centre of the first three bitplanes of DisplayScreen.
 ;
 ; Four 32x32 star sprites (Star32, from star32.raw) are blitted onto bitplane 4
-; of ScreenStatic each frame by BlitStar32.  They scroll right and down slowly,
+; of DisplayScreen each frame by BlitStar32.  They scroll right and down slowly,
 ; wrapping around when they reach the edge.
 ;
 ; Coordinate system:
@@ -63,7 +63,7 @@ TITLE_LOGO_OFFSET       = ((336/2)-(TITLE_WIDTH/2))/8
 ;      - Star 3: X=3*32*3/2, Y=9*32
 ;      (each star spaced by 3*32/2 horizontally and 3*32 vertically)
 ;   7. Copy the title logo from TitleRaw (in Chip RAM data section) into the
-;      first three planes of ScreenStatic at the centred position.
+;      first three planes of DisplayScreen at the centred position.
 ;      The copy handles the fact that the logo planes are tightly packed while
 ;      the screen buffer has wider rows (TITLE_SCREEN_WIDTH_BYTE vs TITLE_WIDTH_BYTE).
 ;
@@ -96,9 +96,9 @@ TitleSetup:
     add.w       #3*32,d1               ; next star Y: shift down by one star-cell (96)
     dbra        d7,.starloop
 
-    ; Copy the title logo (TitleRaw) into ScreenStatic.
+    ; Copy the title logo (TitleRaw) into DisplayScreen.
     ; TitleRaw is stored as 3 planes, each row TITLE_WIDTH_BYTE bytes wide.
-    ; ScreenStatic has rows TITLE_SCREEN_WIDTH_BYTE bytes wide per plane.
+    ; DisplayScreen has rows TITLE_SCREEN_WIDTH_BYTE bytes wide per plane.
     ; We must copy row by row, inserting padding bytes for the wider buffer.
     ;
     ; Outer loop: TITLE_HEIGHT rows
@@ -107,7 +107,7 @@ TitleSetup:
     ; After all planes of a row: advance destination stride by TITLE_SCREEN_STRIDE
 
     lea         TitleRaw,a0            ; a0 -> source logo data (plane 0 row 0)
-    lea         ScreenStatic+TITLE_LOGO_OFFSET,a1   ; a1 -> destination (centred)
+    lea         DisplayScreen+TITLE_LOGO_OFFSET,a1   ; a1 -> destination (centred)
 
     move.l      a1,a2                  ; a2 = base of row 0 (outer row pointer)
 
@@ -139,7 +139,7 @@ TitleSetup:
 
 
 ;==============================================================================
-; BlitStar32  -  Blit a 32x32 star graphic onto bitplane 4 of ScreenStatic
+; BlitStar32  -  Blit a 32x32 star graphic onto bitplane 4 of DisplayScreen
 ;
 ; The star graphic (Star32, star32.raw) is a single-plane 32x32 pixel image.
 ; It is blitted with OR (minterm $9f0) onto plane 4 of the title screen buffer.
@@ -162,7 +162,7 @@ TitleSetup:
 ; Preserves all registers (PUSHALL / POPALL).
 ;
 ; Screen layout for blit:
-;   Destination = ScreenStatic + (plane 4 offset) + y*TITLE_SCREEN_STRIDE + x/8
+;   Destination = DisplayScreen + (plane 4 offset) + y*TITLE_SCREEN_STRIDE + x/8
 ;   Plane 4 offset = TITLE_SCREEN_WIDTH_BYTE * 3  (bytes for planes 0-3 per row + 1)
 ;                  (each plane adds TITLE_SCREEN_WIDTH_BYTE bytes before the next)
 ;
@@ -187,7 +187,7 @@ BlitStar32:
     cmp.w       #TITLE_SCREEN_WIDTH,d0
     bcc         .exit
 
-    ; Calculate destination byte offset into ScreenStatic plane 4:
+    ; Calculate destination byte offset into DisplayScreen plane 4:
     ;   d2 = (x / 8) + TITLE_SCREEN_WIDTH_BYTE*3 - 4
     ;        (the -4 accounts for the 2-word blit width: blitter starts 4 bytes earlier)
     move.w      d0,d2
@@ -199,7 +199,7 @@ BlitStar32:
     muls        #TITLE_SCREEN_STRIDE,d3
     add.l       d3,d2                  ; d2 = final byte offset into screen
 
-    add.l       #ScreenStatic,d2       ; d2 = absolute destination address
+    add.l       #DisplayScreen,d2       ; d2 = absolute destination address
 
     ; Calculate shift amount: X mod 16 (4-bit shift for blitter BLTCON0 shift field)
     move.w      d0,d3
@@ -248,7 +248,7 @@ BlitStar32:
 ;==============================================================================
 ; TitleCopperSetup  -  Configure the title screen copper list
 ;
-; Patches cpTitlePlanes with the addresses of ScreenStatic's five bitplanes
+; Patches cpTitlePlanes with the addresses of DisplayScreen's five bitplanes
 ; (using TITLE_SCREEN_WIDTH_BYTE stride between planes), and copies the title
 ; palette from TitlePal (32 entries) into cpTitlePal.
 ;
@@ -260,9 +260,9 @@ TitleCopperSetup:
     bsr         ClearSprites           ; hide all hardware sprites
 
     ; Patch bitplane pointers in the title copper list.
-    ; The five planes of ScreenStatic are interleaved with TITLE_SCREEN_WIDTH_BYTE
+    ; The five planes of DisplayScreen are interleaved with TITLE_SCREEN_WIDTH_BYTE
     ; bytes between them (wider than the game screen).
-    move.l      #ScreenStatic,d0       ; d0 = base address of plane 0
+    move.l      #DisplayScreen,d0       ; d0 = base address of plane 0
     lea         cpTitlePlanes,a0       ; a0 -> first copper plane entry
 
     moveq       #SCREEN_DEPTH-1,d7     ; 5 planes

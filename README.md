@@ -52,15 +52,15 @@ This is a complete reimplementation of the Millie and Molly puzzle game for the 
 - **Resolution**: 336×216 pixels (PAL)
 - **Color depth**: 5 bitplanes = 32 colors
 - **Screen buffers**: 
-  - `ScreenSave` - Clean background (walls, ladders, shadows)
-  - `ScreenStatic` - Working display buffer with actors
+  - `NonDisplayScreen` - Clean background (walls, ladders, shadows)
+  - `DisplayScreen` - Working display buffer with actors
   - `Screen1/2` - Display output buffers
 
 ### Video Memory Layout
 
 ```
-ScreenSave:    45,360 bytes (336×216×5 planes)
-ScreenStatic:  45,360 bytes (working display)
+NonDisplayScreen:    45,360 bytes (336×216×5 planes)
+DisplayScreen:  45,360 bytes (working display)
 TileSet:       13,920 bytes (29 tiles × 5 planes × 24×24 pixels)
 Sprites:       69,120 bytes (144 actor sprite frames)
 ```
@@ -81,8 +81,8 @@ All tile rendering uses the **Amiga Blitter** with minterm operations for transp
 Minterm $fca: D = (A & B) | (~A & C)
   A = TileMask (per-tile transparency mask)
   B = TileSet (tile graphics)
-  C = ScreenStatic (destination buffer)
-  D = ScreenStatic (output)
+  C = DisplayScreen (destination buffer)
+  D = DisplayScreen (output)
 ```
 
 Result: Where mask A=1, output tile; where A=0, preserve background.
@@ -94,12 +94,12 @@ When actors move or fall through tiles:
 ```
 Minterm $7ca: D = (A & D) | (~A & C)
   A = constant $ffff (full mask)
-  B = ScreenSave (clean background)
-  C = ScreenStatic (current display)
-  D = ScreenStatic (output)
+  B = NonDisplayScreen (clean background)
+  C = DisplayScreen (current display)
+  D = DisplayScreen (output)
 ```
 
-Copies background tile from `ScreenSave`, restoring pixels behind animated actors.
+Copies background tile from `NonDisplayScreen`, restoring pixels behind animated actors.
 
 ## Project Structure
 
@@ -184,7 +184,7 @@ ActionStatus values:
 
 ```
 Initial Level Setup (DrawMap):
-  1. TurboClear(ScreenSave)       → Blank starting canvas
+  1. TurboClear(NonDisplayScreen)       → Blank starting canvas
   2. SetLevelAssets()              → Load tileset and palette
   3. GenTileMask()                 → Build transparency masks
   4. WallPaperLoadBase()           → Load border template
@@ -193,10 +193,10 @@ Initial Level Setup (DrawMap):
   7. WallpaperMakeLadders()        → Build ladder overlays
   8. WallpaperMakeShadows()        → Build shadow overlays
   9. InitGameObjects()             → Create actors from map
-  10. DrawWalls()                   → Render backgrounds to ScreenSave
+  10. DrawWalls()                   → Render backgrounds to NonDisplayScreen
   11. DrawLadders()                 → Overlay ladders
   12. DrawShadows()                 → Overlay shadows
-  13. CopySaveToStatic()            → Copy to ScreenStatic
+  13. CopySaveToStatic()            → Copy to DisplayScreen
   14. DrawStaticActors()            → Blit actors
   15. CopyStaticToBuffers()         → Copy to display output
 

@@ -31,9 +31,9 @@
 ;   ActorFall          - find floor and initiate fall for one actor
 ;   ActorFallAll       - trigger falls for all eligible actors
 ;   ActorDrawStatic    - draw one actor at its current tile position
-;   ClearPlayer        - erase the active player from ScreenStatic
-;   ClearStaticBlock   - erase a tile-aligned block from ScreenStatic
-;   ClearActor         - erase a (possibly shifted) actor from ScreenStatic
+;   ClearPlayer        - erase the active player from DisplayScreen
+;   RestoreBackgroundTile   - erase a tile-aligned block from DisplayScreen
+;   ClearActor         - erase a (possibly shifted) actor from DisplayScreen
 ;   PlayerGetNextBlock - return the block type at the cell ahead of the player
 ;
 ; Register convention:
@@ -103,7 +103,7 @@ ActionFall:
 ;
 ; Iterates the FallenActors list (populated by ActorFallAll) and for each
 ; actor with Actor_HasFalled set:
-;   1. ClearStaticBlock - restore background behind the actor
+;   1. RestoreBackgroundTile - restore background behind the actor
 ;   2. Increment Actor_YDec by 1 (smooth fall by one pixel per frame)
 ;   3. DrawActor        - redraw at new sub-pixel position
 ;   4. When Actor_YDec reaches Actor_FallY: clear fall fields, set
@@ -111,7 +111,7 @@ ActionFall:
 ;      fall through into the impact section below.
 ;
 ; For each actor with Actor_ImpactTick > 0 (smoke animation in progress):
-;   1. ClearStaticBlock + ActorDrawStatic - restore tile and redraw actor
+;   1. RestoreBackgroundTile + ActorDrawStatic - restore tile and redraw actor
 ;   2. DrawSprite - overlay the current smoke frame (SPRITE_SMOKE_A..D)
 ;   3. Increment Actor_ImpactTick; when it exceeds IMPACT_TOTAL_TICKS,
 ;      restore tile, redraw actor cleanly, clear Actor_ImpactTick.
@@ -139,7 +139,7 @@ ActionFallActors:
 
     addq.w      #1,d6                   ; count: one more actor still active
 
-    ; Restore the background tile from ScreenSave before animating
+    ; Restore the background tile from NonDisplayScreen before animating
     move.w      Actor_PrevX(a3),d0      ; original tile X coordinate
     move.w      Actor_PrevY(a3),d1      ; original tile Y coordinate
 
@@ -148,7 +148,7 @@ ActionFallActors:
     move.w      Actor_YDec(a3),d2
     divu        #24,d2
     add.w       d2,d1
-    bsr         ClearStaticBlock        ; restore background from ScreenSave
+    bsr         RestoreBackgroundTile        ; restore background from NonDisplayScreen
 
     addq.w      #1,Actor_YDec(a3)       ; advance sub-pixel Y by one pixel
 
@@ -185,12 +185,12 @@ ActionFallActors:
     ; to their mask pointer, corrupting the FallenActors list position.
     PUSH        a2
 
-    ; 1. Restore background from ScreenSave (clears previous smoke frame)
+    ; 1. Restore background from NonDisplayScreen (clears previous smoke frame)
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         ClearStaticBlock
+    bsr         RestoreBackgroundTile
 
-    ; 2. Redraw actor with transparency (ScreenSave now clean underneath)
+    ; 2. Redraw actor with transparency (NonDisplayScreen now clean underneath)
     bsr         ActorDrawStatic
 
     ; 3. Compute smoke sprite index: SPRITE_SMOKE_A + frame_index
@@ -219,7 +219,7 @@ ActionFallActors:
     PUSH        a2
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         ClearStaticBlock        ; clear last smoke frame
+    bsr         RestoreBackgroundTile        ; clear last smoke frame
     bsr         ActorDrawStatic         ; redraw actor cleanly
     POP         a2
     clr.w       Actor_ImpactTick(a3)    ; mark animation complete
@@ -266,10 +266,10 @@ PUSH_DELTA  = (SINE_ANGLES<<16)/2/PUSH_STEPS
 ActionPlayerPush:
     move.l      PushedActor(a5),a3     ; a3 -> the block being pushed
 
-    ; First, restore the background tile from ScreenSave for the entire animation area
+    ; First, restore the background tile from NonDisplayScreen for the entire animation area
     move.w      Actor_PrevX(a3),d0      ; tile X coordinate
     move.w      Actor_PrevY(a3),d1      ; tile Y coordinate
-    bsr         ClearStaticBlock        ; blit background from ScreenSave to ScreenStatic
+    bsr         RestoreBackgroundTile        ; blit background from NonDisplayScreen to DisplayScreen
 
     bsr         ClearActor             ; erase block from current drawn position
 
@@ -413,7 +413,7 @@ ActionPlayerFall:
 ;     DrawSprite restores d0-d2 via POPM so consecutive calls reuse the same
 ;     pixel base; only the offsets differ.
 ;
-; Trail particle life is INTRO_TRAIL_LIFE frames; ClearStaticBlock at the tile
+; Trail particle life is INTRO_TRAIL_LIFE frames; RestoreBackgroundTile at the tile
 ; position restores the background when the particle expires.
 ;
 ; Registers in the step section:
@@ -428,7 +428,7 @@ ActionIntro:
     ; For each live slot: clear tile, decrement life, redraw if still alive.
     ; Small stars fade out on their natural schedule regardless of hold state.
     ; d6 = byte offset (index*2); d3 = tileX; d4 = tileY; d5 = life; d7 = counter
-    ; ClearStaticBlock uses PUSHALL/POPALL (all regs preserved).
+    ; RestoreBackgroundTile uses PUSHALL/POPALL (all regs preserved).
     ; DrawSprite clobbers a0-a2 only (d0-d7, a3-a6 preserved via PUSHM/POPM).
 
     moveq       #INTRO_TRAIL_MAX-1,d7
@@ -448,7 +448,7 @@ ActionIntro:
 
     move.w      d3,d0
     move.w      d4,d1
-    bsr         ClearStaticBlock        ; restore tile from ScreenSave
+    bsr         RestoreBackgroundTile        ; restore tile from NonDisplayScreen
 
     subq.w      #1,d5                   ; decrement life
     move.w      d5,(a0,d6.w)
@@ -479,7 +479,7 @@ ActionIntro:
     ; a. Erase large star from current tile
     move.w      IntroStarX(a5),d0
     move.w      IntroStarY(a5),d1
-    bsr         ClearStaticBlock
+    bsr         RestoreBackgroundTile
 
     ; b. Write one trail pool entry at current tile position
     move.w      IntroWriteIdx(a5),d3    ; d3 = slot index
@@ -630,7 +630,7 @@ ActionIntro:
     ; Hold expired: erase large star and trail, then begin gameplay
     move.w      IntroStarX(a5),d0
     move.w      IntroStarY(a5),d1
-    bsr         ClearStaticBlock        ; erase large star from ScreenStatic
+    bsr         RestoreBackgroundTile        ; erase large star from DisplayScreen
     bsr         IntroClearAllTrail      ; clear any surviving trail particles
     bsr         DrawStaticActors        ; restore any actor tiles the trail cleared
     move.l      PlayerPtrs(a5),a4
@@ -641,10 +641,10 @@ ActionIntro:
 
 
 ;==============================================================================
-; IntroClearAllTrail  -  ClearStaticBlock all active trail particles
+; IntroClearAllTrail  -  RestoreBackgroundTile all active trail particles
 ;
 ; Called at intro completion to erase every still-visible trail star from
-; ScreenStatic and mark each particle dead (Life = 0).
+; DisplayScreen and mark each particle dead (Life = 0).
 ;==============================================================================
 
 IntroClearAllTrail:
@@ -660,7 +660,7 @@ IntroClearAllTrail:
     beq         .next                   ; already dead
     move.w      (a1,d6.w),d0            ; tile X
     move.w      (a2,d6.w),d1            ; tile Y
-    bsr         ClearStaticBlock        ; PUSHALL/POPALL: preserves all registers
+    bsr         RestoreBackgroundTile        ; PUSHALL/POPALL: preserves all registers
     clr.w       (a0,d6.w)               ; mark dead
 
 .next
@@ -680,7 +680,7 @@ IntroClearAllTrail:
 ;   1. Compute frame index = (Actor_CloudTick - 1) / CLOUD_FRAME_TICKS
 ;   2. If frame >= CLOUD_FRAMES: erase last cloud frame, clear Actor_CloudTick.
 ;   3. Otherwise:
-;      a. ClearStaticBlock  - restore background behind the cloud
+;      a. RestoreBackgroundTile  - restore background behind the cloud
 ;      b. DrawSprite        - blit cloud frame SPRITE_CLOUD_A + frame at bumped pixel pos
 ;      c. Increment Actor_CloudTick
 ;
@@ -716,10 +716,10 @@ ActionCloudActors:
     ; --- Draw cloud frame ---
     PUSH        a2                      ; DrawSprite clobbers a2; preserve list pointer
 
-    ; 1. Restore background from ScreenSave (clears previous cloud frame)
+    ; 1. Restore background from NonDisplayScreen (clears previous cloud frame)
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         ClearStaticBlock
+    bsr         RestoreBackgroundTile
 
     ; 2. Compute sprite index for this frame
     move.w      Actor_CloudTick(a3),d2
@@ -734,7 +734,7 @@ ActionCloudActors:
     move.w      Actor_Y(a3),d1
     mulu        #24,d1                  ; d1 = pixel Y
 
-    bsr         DrawSprite              ; blit cloud frame to ScreenStatic
+    bsr         DrawSprite              ; blit cloud frame to DisplayScreen
 
     POP         a2                      ; restore CloudActors list pointer
 
@@ -746,7 +746,7 @@ ActionCloudActors:
     PUSH        a2
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         ClearStaticBlock        ; erase last cloud frame from screen
+    bsr         RestoreBackgroundTile        ; erase last cloud frame from screen
     POP         a2
     clr.w       Actor_CloudTick(a3)     ; mark animation done
 
@@ -856,7 +856,7 @@ ActionIdle:
 ;   - Player_Status of the current active player is set to 2 (frozen)
 ;
 ; After swapping:
-;   - ClearPlayer erases the newly-active player's static graphic from ScreenStatic
+;   - ClearPlayer erases the newly-active player's static graphic from DisplayScreen
 ;   - Player_Status of the new active player is set to 1 (active)
 ;
 ; If the other player's Status is 0 (inactive = not yet placed in the level),
@@ -886,14 +886,14 @@ PlayerSwitch:
 ;==============================================================================
 ; DrawPlayerFrozen  -  Draw the inactive player in its static frozen pose
 ;
-; Blits the "frozen" sprite for the current player (a4) into ScreenStatic.
+; Blits the "frozen" sprite for the current player (a4) into DisplayScreen.
 ; The frozen sprite is:
 ;   - If on a ladder: Player_LadderFreezeId frame (specific ladder-idle graphic)
 ;   - If facing right: Player_SpriteOffset + 46 (right-facing static frame)
 ;   - If facing left:  Player_SpriteOffset + 47 (left-facing static frame)
 ;
 ; Uses DrawSprite (in mapstuff.asm) which blits from the Sprites sheet (not RealSprites).
-; Note: DrawSprite targets ScreenStatic; ClearPlayer must be called to remove it later.
+; Note: DrawSprite targets DisplayScreen; ClearPlayer must be called to remove it later.
 ;==============================================================================
 
 DrawPlayerFrozen:
@@ -919,7 +919,7 @@ DrawPlayerFrozen:
     addq.w      #1,d2                   ; +1 for left-facing frozen frame
 
 .isright
-    bsr         DrawSprite              ; blit frozen sprite into ScreenStatic
+    bsr         DrawSprite              ; blit frozen sprite into DisplayScreen
     rts
 
 
@@ -1687,7 +1687,7 @@ ActorFallAll:
 ;==============================================================================
 ; ActorDrawStatic  -  Draw an actor at its current tile position
 ;
-; Blits the actor's sprite tile into ScreenStatic at its tile-aligned position.
+; Blits the actor's sprite tile into DisplayScreen at its tile-aligned position.
 ; Used to redraw an actor after it has landed at a new position.
 ;==============================================================================
 
@@ -1698,7 +1698,7 @@ ActorDrawStatic:
     mulu        #24,d1
     moveq       #0,d2
     move.w      Actor_SpriteOffset(a3),d2
-    lea         ScreenStatic,a1
+    lea         DisplayScreen,a1
     bsr         PasteTile
     rts
 
@@ -1762,9 +1762,9 @@ ActorFall:
 ;
 ; Searches ActorList for a live actor at (Player_NextX, Player_NextY).
 ; When found: sets Actor_Status = 0 (dead), clears the GameMap cell,
-; and calls ClearStaticBlock to erase it from ScreenStatic.
+; and calls RestoreBackgroundTile to erase it from DisplayScreen.
 ;
-; Also erases it from ScreenStatic by calling ClearStaticBlock.
+; Also erases it from DisplayScreen by calling RestoreBackgroundTile.
 ;
 ; Note: CleanActors must be called separately to compact the ActorList.
 ;==============================================================================
@@ -1820,7 +1820,7 @@ PlayerKillActor:
     ; Erase from screen
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         ClearStaticBlock        ; erase tile from ScreenStatic
+    bsr         RestoreBackgroundTile        ; erase tile from DisplayScreen
     bra         .exit
 
 .next
@@ -1831,10 +1831,10 @@ PlayerKillActor:
 
 
 ;==============================================================================
-; ClearPlayer  -  Erase the active player from ScreenStatic
+; ClearPlayer  -  Erase the active player from DisplayScreen
 ;
 ; Restores the 24x24 pixel area at the player's current tile position from
-; ScreenSave into ScreenStatic.  Used when switching from active to frozen.
+; NonDisplayScreen into DisplayScreen.  Used when switching from active to frozen.
 ;
 ; The blit uses minterm $7ca combined with a constant mask to select which
 ; words to write.  The mask depends on whether the player's X is on the left
@@ -1843,16 +1843,16 @@ PlayerKillActor:
 ;   X AND $f != 0 (shifted):     mask = $00ffffff (write last 3 bytes)
 ;
 ; The blitter writes a constant $ffff (all ones) from BLTADAT, gated by the
-; mask in BLTAFWM, combined with the source from ScreenSave (B) and
-; current ScreenStatic (C).
+; mask in BLTAFWM, combined with the source from NonDisplayScreen (B) and
+; current DisplayScreen (C).
 ; Minterm $7ca = (~A&B&C) | (A&B) | (~A&~B&C) simplifies to: where mask=1 use B, else C.
-; Effectively: copy ScreenSave (B) to ScreenStatic (D) in the masked region.
+; Effectively: copy NonDisplayScreen (B) to DisplayScreen (D) in the masked region.
 ;==============================================================================
 
 ClearPlayer:
     PUSHALL
-    lea         ScreenSave,a0          ; source: clean background
-    lea         ScreenStatic,a1        ; destination: current display buffer
+    lea         NonDisplayScreen,a0          ; source: clean background
+    lea         DisplayScreen,a1        ; destination: current display buffer
 
     ; Calculate player pixel position
     move.w      Player_X(a4),d0
@@ -1879,9 +1879,9 @@ ClearPlayer:
     move.l      #$7ca<<16,BLTCON0(a6)  ; BLTCON0: minterm $7ca, no shift
     move.l      d1,BLTAFWM(a6)         ; first+last word mask
     move.w      #-1,BLTADAT(a6)        ; A data register = $ffff (constant ones)
-    move.l      a0,BLTBPT(a6)          ; B = ScreenSave (clean background)
-    move.l      a1,BLTCPT(a6)          ; C = ScreenStatic (current display)
-    move.l      a1,BLTDPT(a6)          ; D = ScreenStatic (output)
+    move.l      a0,BLTBPT(a6)          ; B = NonDisplayScreen (clean background)
+    move.l      a1,BLTCPT(a6)          ; C = DisplayScreen (current display)
+    move.l      a1,BLTDPT(a6)          ; D = DisplayScreen (output)
     move.w      #0,BLTAMOD(a6)         ; A is constant (no DMA, just BLTADAT)
     move.w      #TILE_BLT_MOD,BLTBMOD(a6)
     move.w      #TILE_BLT_MOD,BLTCMOD(a6)
@@ -1892,7 +1892,7 @@ ClearPlayer:
 
 
 ;==============================================================================
-; ClearStaticBlock  -  Erase a tile-aligned block from ScreenStatic
+; RestoreBackgroundTile  -  Erase a tile-aligned block from DisplayScreen
 ;
 ; Identical logic to ClearPlayer but takes its coordinates from d0 (X tile)
 ; and d1 (Y tile) in tile units (not pixels - multiplied by 24 inside).
@@ -1908,10 +1908,10 @@ ClearPlayer:
 ;   a5, a6 as usual
 ;==============================================================================
 
-ClearStaticBlock:
+RestoreBackgroundTile:
     PUSHALL
-    lea         ScreenSave,a0
-    lea         ScreenStatic,a1
+    lea         NonDisplayScreen,a0
+    lea         DisplayScreen,a1
 
     mulu        #24,d0                 ; pixel X
     mulu        #24,d1                 ; pixel Y
@@ -1946,9 +1946,9 @@ ClearStaticBlock:
 
 
 ;==============================================================================
-; ClearActor  -  Erase a (potentially sub-pixel-shifted) actor from ScreenStatic
+; ClearActor  -  Erase a (potentially sub-pixel-shifted) actor from DisplayScreen
 ;
-; Unlike ClearStaticBlock which uses tile coordinates, ClearActor uses the
+; Unlike RestoreBackgroundTile which uses tile coordinates, ClearActor uses the
 ; actor's PrevX/PrevY tile position PLUS XDec/YDec sub-tile offsets to compute
 ; the exact pixel position.  This correctly erases an actor that is mid-animation.
 ;
@@ -1978,8 +1978,8 @@ ClearActor:
     mulu        #24,d1
     add.w       Actor_YDec(a3),d1     ; pixel Y = PrevY*24 + YDec
 
-    lea         ScreenSave,a0
-    lea         ScreenStatic,a1
+    lea         NonDisplayScreen,a0
+    lea         DisplayScreen,a1
 
     mulu        #SCREEN_STRIDE,d1
     move.w      d0,d2

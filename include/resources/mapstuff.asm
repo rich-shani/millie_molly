@@ -17,22 +17,22 @@
 ;
 ;   Rendering to screen:
 ;     DrawMap           - master draw routine: init + walls + ladders + shadows + actors
-;     DrawWalls         - blit all wall tiles (from WallpaperWork) into ScreenSave
-;     DrawLadders       - overlay ladder tiles onto ScreenSave
-;     DrawShadows       - overlay shadow graphics onto ScreenSave
+;     DrawWalls         - blit all wall tiles (from WallpaperWork) into NonDisplayScreen
+;     DrawLadders       - overlay ladder tiles onto NonDisplayScreen
+;     DrawShadows       - overlay shadow graphics onto NonDisplayScreen
 ;     DrawTile          - blit a single 24x24 tile using the blitter (no mask)
 ;     PasteTile         - blit a tile with mask (transparency support)
 ;     ShadowTile        - blit a shadow graphic with per-plane OR operation
 ;     DrawActor         - blit a moving actor tile (with shift-aware masking)
-;     DrawButtons       - draw UI buttons and level counter to ScreenSave
+;     DrawButtons       - draw UI buttons and level counter to NonDisplayScreen
 ;     DrawLevelCounter  - render the level number onto the counter graphic
 ;     DrawButton        - blit a single UI button graphic
 ;
 ;   Utilities:
 ;     GenTileMask       - generate the blitter mask for the current tile set
 ;     GenSpriteMask     - generate blitter mask for the sprite sheet
-;     CopySaveToStatic  - copy ScreenSave -> ScreenStatic
-;     CopyStaticToBuffers - copy ScreenStatic -> Screen1 and Screen2
+;     CopySaveToStatic  - copy NonDisplayScreen -> DisplayScreen
+;     CopyStaticToBuffers - copy DisplayScreen -> Screen1 and Screen2
 ;
 ; Blitter background:
 ;   The 68000's internal speed is limited by its bus cycle time.  The Amiga's
@@ -57,17 +57,17 @@
 ; DrawMap  -  Master level draw entry point
 ;
 ; Resets player/level state, fully initialises and renders the current level
-; into ScreenSave, then copies it to ScreenStatic and both screen buffers.
+; into NonDisplayScreen, then copies it to DisplayScreen and both screen buffers.
 ;
 ; Call order:
 ;   LevelInit        - build maps, load assets, create actors
-;   DrawWalls        - render wall tile grid into ScreenSave
-;   DrawButtons      - render UI (level counter + buttons) into ScreenSave
-;   DrawLadders      - overlay ladder tiles onto ScreenSave
-;   DrawShadows      - overlay shadow graphics onto ScreenSave
-;   CopySaveToStatic - copy ScreenSave to ScreenStatic (working display buffer)
-;   DrawStaticActors - blit all actor tiles into ScreenStatic
-;   CopyStaticToBuffers - copy ScreenStatic to Screen1 and Screen2
+;   DrawWalls        - render wall tile grid into NonDisplayScreen
+;   DrawButtons      - render UI (level counter + buttons) into NonDisplayScreen
+;   DrawLadders      - overlay ladder tiles onto NonDisplayScreen
+;   DrawShadows      - overlay shadow graphics onto NonDisplayScreen
+;   CopySaveToStatic - copy NonDisplayScreen to DisplayScreen (working display buffer)
+;   DrawStaticActors - blit all actor tiles into DisplayScreen
+;   CopyStaticToBuffers - copy DisplayScreen to Screen1 and Screen2
 ;==============================================================================
 
 DrawMap:
@@ -80,15 +80,26 @@ DrawMap:
     bsr           DrawButtons            ; render UI buttons and level counter
     bsr           DrawLadders            ; overlay ladder graphics
     bsr           DrawShadows            ; overlay shadow graphics
-    bsr           CopySaveToStatic       ; copy clean background to ScreenStatic
-    bsr           DrawStaticActors       ; blit actor tiles on top of ScreenStatic
-    bsr           DrawInitialPlayers     ; draw both players at level start
-    bsr           LevelIntroSetup        ; initialise intro star animation; hides player sprites
-    bsr           CopyStaticToBuffers    ; copy to display buffers
+ ;   bsr           CopySaveToStatic       ; copy clean background to DisplayScreen
+;    bsr           DrawStaticActors       ; blit actor tiles on top of DisplayScreen
+ ;   bsr           DrawInitialPlayers     ; draw both players at level start
+;    bsr           LevelIntroSetup        ; initialise intro star animation; hides player sprites
+;    bsr           CopyStaticToBuffers    ; copy to display buffers
 
-.notboth
     rts
 
+DrawPlayersAndActors:
+    bsr           CopySaveToStatic       ; copy clean background to DisplayScreen
+    bsr           DrawStaticActors       ; blit actor tiles on top of DisplayScreen
+    bsr           DrawInitialPlayers     ; draw both players at level start
+
+    rts 
+
+
+ ;   bsr           LevelIntroSetup        ; initialise intro star animation; hides player sprites
+ ;   bsr           CopyStaticToBuffers    ; copy to display buffers
+
+ ;   rts 
 
 ;==============================================================================
 ; DrawButtons  -  Render the UI strip on the right side of the screen
@@ -100,7 +111,7 @@ DrawMap:
 ; Pixel positions are hardcoded; buttons are 19 pixels tall with 43px spacing.
 ; The level counter occupies a slightly different width (6 bytes vs 4 bytes).
 ;
-; DrawLevelCounter and DrawButton blit from their source graphics into ScreenSave
+; DrawLevelCounter and DrawButton blit from their source graphics into NonDisplayScreen
 ; using the blitter with mask (minterm $fca, using pre-generated masks).
 ;==============================================================================
 
@@ -134,9 +145,9 @@ DrawButtons:
 
 
 ;==============================================================================
-; CopyStaticToBuffers  -  Copy ScreenStatic to both display buffers
+; CopyStaticToBuffers  -  Copy DisplayScreen to both display buffers
 ;
-; After building the static scene, this copies ScreenStatic into Screen1 and
+; After building the static scene, this copies DisplayScreen into Screen1 and
 ; Screen2 so that both double-buffer targets start with the correct base image.
 ; (Currently both Screen1 entries point to Screen1 - true double-buffering
 ; would use Screen1 and Screen2 alternately.)
@@ -145,7 +156,7 @@ DrawButtons:
 ;==============================================================================
 
 CopyStaticToBuffers:
-    lea           ScreenStatic,a0
+    lea           DisplayScreen,a0
     lea           Screen1,a1
     lea           Screen1,a2             ; NOTE: both point to Screen1 (single-buffer mode)
     move.w        #(SCREEN_SIZE/4)-1,d7  ; number of longwords - 1 (for DBRA)
@@ -159,16 +170,16 @@ CopyStaticToBuffers:
 
 
 ;==============================================================================
-; CopySaveToStatic  -  Copy ScreenSave to ScreenStatic
+; CopySaveToStatic  -  Copy NonDisplayScreen to DisplayScreen
 ;
-; ScreenSave contains the clean background (walls + ladders + shadows, no actors).
-; This is copied to ScreenStatic at the start of each scene composition step
+; NonDisplayScreen contains the clean background (walls + ladders + shadows, no actors).
+; This is copied to DisplayScreen at the start of each scene composition step
 ; so that actors can be blitted on top without permanently modifying the save copy.
 ;==============================================================================
 
 CopySaveToStatic:
-    lea           ScreenSave,a0
-    lea           ScreenStatic,a1
+    lea           NonDisplayScreen,a0
+    lea           DisplayScreen,a1
     move.w        #(SCREEN_SIZE/4)-1,d7
 
 .copy
@@ -181,7 +192,7 @@ CopySaveToStatic:
 ; LevelInit  -  Initialise all state for a new level
 ;
 ; Sequence:
-;   1. TurboClear ScreenSave (blank starting canvas)
+;   1. TurboClear NonDisplayScreen (blank starting canvas)
 ;   2. Clear Player_Status for both Millie and Molly (both inactive until placed)
 ;   3. Set PlayerPtrs: Millie -> [0], Molly -> [1]
 ;   4. SetLevelAssets: decompress tile set, set palette
@@ -197,7 +208,7 @@ CopySaveToStatic:
 
 LevelInit:
     ; Clear the save screen buffer (background)
-    lea           ScreenSave,a0
+    lea           NonDisplayScreen,a0
     move.l        #SCREEN_SIZE,d7
     bsr           TurboClear
 
@@ -871,7 +882,7 @@ WallPaperLoadBase:
 
 
 ;==============================================================================
-; DrawSprite  -  Blit a sprite tile from Sprites[] onto ScreenStatic with masking
+; DrawSprite  -  Blit a sprite tile from Sprites[] onto DisplayScreen with masking
 ;
 ; Similar to PasteTile but reads from Sprites (actor sprite sheet) rather than
 ; TileSet, and uses SpriteMask rather than TileMask.
@@ -894,13 +905,13 @@ DrawSprite:
 
     lea           Sprites,a0             ; sprite sheet base
     lea           SpriteMask,a2          ; sprite mask base
-    lea           ScreenStatic,a1        ; destination buffer
+    lea           DisplayScreen,a1        ; destination buffer
 
     mulu          #TILE_SIZE,d2
     add.l         d2,a0                  ; advance to selected sprite tile
     add.l         d2,a2                  ; advance to corresponding mask
 
-    ; Calculate destination address in ScreenStatic
+    ; Calculate destination address in DisplayScreen
     mulu          #SCREEN_STRIDE,d1      ; row offset (all planes)
     move.w        d0,d2
     asr.w         #3,d2                  ; byte column = X / 8
@@ -1050,7 +1061,7 @@ TILE_BLT_SIZE       = ((24*SCREEN_DEPTH)<<6)+2         ; 120 rows (5 planes), 2 
 
 
 ;==============================================================================
-; DrawWalls  -  Blit all wall/background tiles from WallpaperWork into ScreenSave
+; DrawWalls  -  Blit all wall/background tiles from WallpaperWork into NonDisplayScreen
 ;
 ; Walks the WallpaperWork array (WALL_PAPER_WIDTH x WALL_PAPER_HEIGHT = 14x9)
 ; and calls DrawTile for each cell, passing the tile index and screen position.
@@ -1059,7 +1070,7 @@ TILE_BLT_SIZE       = ((24*SCREEN_DEPTH)<<6)+2         ; 120 rows (5 planes), 2 
 ; The outer loop iterates rows (Y += TILE_HEIGHT each iteration).
 ; The inner loop iterates columns (X += TILE_WIDTH each iteration).
 ;
-; Note: DrawTile writes to ScreenSave.  WallpaperWork was built by WallPaperWalls.
+; Note: DrawTile writes to NonDisplayScreen.  WallpaperWork was built by WallPaperWalls.
 ;==============================================================================
 
 DrawWalls:
@@ -1074,7 +1085,7 @@ DrawWalls:
 .xloop
     moveq         #0,d2
     move.b        (a4)+,d2               ; d2 = tile index for this cell
-    bsr           DrawTile               ; blit tile to ScreenSave at (d0, d1)
+    bsr           DrawTile               ; blit tile to NonDisplayScreen at (d0, d1)
     add.w         #TILE_WIDTH,d0         ; advance X by one tile width (24)
     cmp.w         #SCREEN_WIDTH,d0       ; reached right edge?
     bcs           .xloop
@@ -1086,7 +1097,7 @@ DrawWalls:
 
 
 ;==============================================================================
-; DrawLadders  -  Overlay ladder tiles onto ScreenSave
+; DrawLadders  -  Overlay ladder tiles onto NonDisplayScreen
 ;
 ; Walks WallpaperLadders and calls PasteTile (masked blit) for each non-zero
 ; entry.  Zero entries mean no ladder at that cell and are skipped.
@@ -1107,7 +1118,7 @@ DrawLadders:
     move.b        (a4)+,d2               ; d2 = ladder tile index (0 = none)
     beq           .skip                  ; skip empty cells
 
-    lea           ScreenSave,a1          ; destination: background save buffer
+    lea           NonDisplayScreen,a1          ; destination: background save buffer
     bsr           PasteTile              ; masked blit with transparency
 
 .skip
@@ -1122,7 +1133,7 @@ DrawLadders:
 
 
 ;==============================================================================
-; DrawShadows  -  Overlay shadow graphics onto ScreenSave
+; DrawShadows  -  Overlay shadow graphics onto NonDisplayScreen
 ;
 ; Walks WallpaperShadows and calls ShadowTile for each non-zero entry.
 ; The shadow value is a 4-bit flag that ShadowTile maps to a shadow shape index.
@@ -1154,7 +1165,7 @@ DrawShadows:
 
 
 ;==============================================================================
-; ShadowTile  -  Blit a shadow graphic onto ScreenSave (per-plane OR)
+; ShadowTile  -  Blit a shadow graphic onto NonDisplayScreen (per-plane OR)
 ;
 ; Shadow graphics are single-bitplane images that darken specific pixels by
 ; setting them to colour 0 (background).  They are blitted with minterm $d0c
@@ -1196,7 +1207,7 @@ ShadowTile:
     lea           Shadows,a0
     add.w         d2,a0                  ; a0 -> selected shadow graphic
 
-    lea           ScreenSave,a1          ; destination: background save buffer
+    lea           NonDisplayScreen,a1          ; destination: background save buffer
 
     ; Calculate pixel offset in screen:
     mulu          #SCREEN_STRIDE,d1      ; row start offset (all planes)
@@ -1258,7 +1269,7 @@ ShadowTile:
 
 
 ;==============================================================================
-; DrawTile  -  Blit a tile from TileSet into ScreenSave (no mask, direct copy)
+; DrawTile  -  Blit a tile from TileSet into NonDisplayScreen (no mask, direct copy)
 ;
 ; Used by DrawWalls for background and wall tiles where every pixel should be
 ; opaque (the tile completely replaces the background).  Uses minterm $dfc
@@ -1271,7 +1282,7 @@ ShadowTile:
 ;   a5 = Variables base (for TilesetPtr)
 ;   a6 = $dff000
 ;
-; Writes to ScreenSave.
+; Writes to NonDisplayScreen.
 ;==============================================================================
 
 DrawTile:
@@ -1279,12 +1290,12 @@ DrawTile:
 
     ; Calculate source address in TileSet
     move.l        TilesetPtr(a5),a0
-    lea           ScreenSave,a1
+    lea           NonDisplayScreen,a1
 
     mulu          #TILE_SIZE,d2          ; byte offset = tile_index * TILE_SIZE
     add.w         d2,a0                  ; a0 -> selected tile's bitplane data
 
-    ; Calculate destination address in ScreenSave
+    ; Calculate destination address in NonDisplayScreen
     mulu          #SCREEN_STRIDE,d1      ; row offset = Y * SCREEN_STRIDE (all 5 planes)
     move.w        d0,d2
     asr.w         #3,d2                  ; byte column = X / 8
@@ -1342,7 +1353,7 @@ LEVEL_FONT_STRIDE      = 10*SCREEN_DEPTH           ; bytes between level font ro
 ;
 ; Composites the current level number digits from LevelFont onto a copy of
 ; LevelCountRaw (the background counter graphic), then blits the result into
-; ScreenSave at the specified position.
+; NonDisplayScreen at the specified position.
 ;
 ; Steps:
 ;   1. Copy LevelCountRaw to LevelCountTemp (working buffer).
@@ -1352,7 +1363,7 @@ LEVEL_FONT_STRIDE      = 10*SCREEN_DEPTH           ; bytes between level font ro
 ;      This is done for 8 rows of each digit across 5 bitplanes.
 ;   4. Generate a combined mask in ButtonMaskTemp by OR-ing all 5 planes of
 ;      LevelCountTemp per row (mask = any pixel set in any plane).
-;   5. Blit LevelCountTemp onto ScreenSave using the mask (minterm $fca).
+;   5. Blit LevelCountTemp onto NonDisplayScreen using the mask (minterm $fca).
 ;
 ; On entry:
 ;   d0 = X pixel position
@@ -1461,9 +1472,9 @@ DrawLevelCounter:
 
     dbra          d7,.nextline
 
-    ; Step 5: Blit counter graphic onto ScreenSave with mask
+    ; Step 5: Blit counter graphic onto NonDisplayScreen with mask
     lea           ButtonMaskTemp,a2      ; A source = mask
-    lea           ScreenSave,a1          ; C/D = destination
+    lea           NonDisplayScreen,a1          ; C/D = destination
 
     lea           ButtonMaskTemp,a2      ; (re-set in case clobbered)
 
@@ -1499,10 +1510,10 @@ DrawLevelCounter:
 
 
 ;==============================================================================
-; DrawButton  -  Blit a UI button graphic onto ScreenSave with mask
+; DrawButton  -  Blit a UI button graphic onto NonDisplayScreen with mask
 ;
 ; Generates a per-row mask from the button graphic (OR all 5 planes),
-; then blits the graphic with that mask onto ScreenSave at the given position.
+; then blits the graphic with that mask onto NonDisplayScreen at the given position.
 ;
 ; On entry:
 ;   d0 = X pixel position
@@ -1540,7 +1551,7 @@ DrawButton:
 
     ; Set up pointers
     lea           ButtonMaskTemp,a2      ; a2 = mask source
-    lea           ScreenSave,a1          ; destination
+    lea           NonDisplayScreen,a1          ; destination
 
     lea           ButtonMaskTemp,a2      ; re-set (belt-and-braces)
 
@@ -1576,7 +1587,7 @@ DrawButton:
 
 
 ;==============================================================================
-; DrawActor  -  Blit a moving actor tile onto ScreenStatic with shift-aware mask
+; DrawActor  -  Blit a moving actor tile onto DisplayScreen with shift-aware mask
 ;
 ; Used for actors that are mid-movement (XDec or YDec non-zero).  The actor's
 ; pixel position is computed from PrevX/Y + XDec/YDec (smooth animation position).
@@ -1606,7 +1617,7 @@ DrawActor:
     mulu          #24,d1
     add.w         Actor_YDec(a3),d1      ; d1 = Y pixels
 
-    lea           ScreenStatic,a1        ; destination: static display buffer
+    lea           DisplayScreen,a1        ; destination: static display buffer
     move.w        Actor_SpriteOffset(a3),d2  ; d2 = tile index
 
     ; Source pointers
@@ -1617,7 +1628,7 @@ DrawActor:
     add.w         d2,a0                  ; a0 -> tile graphic data
     add.w         d2,a2                  ; a2 -> tile mask data
 
-    ; Destination address in ScreenStatic
+    ; Destination address in DisplayScreen
     mulu          #SCREEN_STRIDE,d1
     move.w        d0,d2
     asr.w         #3,d2                  ; byte column
@@ -1822,7 +1833,7 @@ LevelIntroSetup:
 ;
 ; The primary transparent tile blit routine.  Used for:
 ;   - DrawLadders (ladder tiles with transparency)
-;   - DrawStaticActors (actor tiles pasted onto ScreenStatic)
+;   - DrawStaticActors (actor tiles pasted onto DisplayScreen)
 ;   - ActorDrawStatic (individual actor redraw)
 ;
 ; Uses minterm $fca (A&B | ~A&C):
@@ -1835,7 +1846,7 @@ LevelIntroSetup:
 ;   d0 = X pixel position
 ;   d1 = Y pixel position
 ;   d2 = tile index (0..TILESET_COUNT-1)
-;   a1 = pointer to screen buffer (ScreenSave or ScreenStatic)
+;   a1 = pointer to screen buffer (NonDisplayScreen or DisplayScreen)
 ;   a5 = Variables base (for TilesetPtr)
 ;   a6 = $dff000
 ;==============================================================================
@@ -1882,7 +1893,7 @@ PasteTile:
 
 
 ;==============================================================================
-; WipeBlitBlack  -  Zero-fill one tile on ScreenStatic (black wipe step)
+; WipeBlitBlack  -  Zero-fill one tile on DisplayScreen (black wipe step)
 ;
 ; Zero-fills the 24x24-pixel tile area at the given tile coordinates using
 ; the blitter.  Uses minterm $0A (~A & C): guard bits outside the 24-pixel
@@ -1901,7 +1912,7 @@ PasteTile:
 WipeBlitBlack:
     PUSHALL
 
-    lea         ScreenStatic,a1
+    lea         DisplayScreen,a1
 
     mulu        #24,d0                  ; pixel X
     mulu        #24,d1                  ; pixel Y
@@ -1910,7 +1921,7 @@ WipeBlitBlack:
     move.w      d0,d2
     asr.w       #3,d2                   ; byte column = X / 8
     add.w       d2,d1
-    add.l       d1,a1                   ; a1 -> destination in ScreenStatic
+    add.l       d1,a1                   ; a1 -> destination in DisplayScreen
 
     move.l      #$ffffff00,d1           ; mask: BLTAFWM=$FFFF, BLTALWM=$FF00 (shift=0)
     and.w       #$f,d0
@@ -1923,8 +1934,8 @@ WipeBlitBlack:
     move.l      d1,BLTAFWM(a6)         ; BLTAFWM + BLTALWM word masks
     move.w      #-1,BLTADAT(a6)        ; A = constant $FFFF (gated by BLTAFWM/BLTALWM)
     move.w      #0,BLTAMOD(a6)         ; A modulo = 0 (constant, no DMA advance)
-    move.l      a1,BLTCPT(a6)          ; C = ScreenStatic (guard bits preserved)
-    move.l      a1,BLTDPT(a6)          ; D = ScreenStatic (output)
+    move.l      a1,BLTCPT(a6)          ; C = DisplayScreen (guard bits preserved)
+    move.l      a1,BLTDPT(a6)          ; D = DisplayScreen (output)
     move.w      #TILE_BLT_MOD,BLTCMOD(a6)
     move.w      #TILE_BLT_MOD,BLTDMOD(a6)
     move.w      #TILE_BLT_SIZE,BLTSIZE(a6)
@@ -1944,11 +1955,11 @@ WipeBlitBlack:
 ;                                     when done sets WipeHoldTick, → LEVEL_HOLD.
 ;                       LEVEL_HOLD  : counts down WipeHoldTick; calls
 ;                                     LevelRevealSetup when zero, → LEVEL_REVEAL.
-;                       LEVEL_REVEAL: copies WIPE_SPEED tiles from ScreenSave;
+;                       LEVEL_REVEAL: copies WIPE_SPEED tiles from NonDisplayScreen;
 ;                                     when done calls DrawStaticActors, → GameRun.
 ;
 ; LevelRevealSetup    - called from LevelTransitionRun when hold expires.
-;                       Builds next level into ScreenSave, reverses WipeTileX/Y,
+;                       Builds next level into NonDisplayScreen, reverses WipeTileX/Y,
 ;                       and advances to LEVEL_REVEAL (5).
 ;
 ; Fill routines   - each fills WipeTileX and WipeTileY with 126 tile coords
@@ -2041,8 +2052,8 @@ LevelSetup:
 ;                  LevelRevealSetup which builds the new level and advances
 ;                  to LEVEL_REVEAL (5).
 ;
-; LEVEL_REVEAL (6) - copy WIPE_SPEED tiles per frame from ScreenSave to
-;                    ScreenStatic (reverse-wipe).  When done, call
+; LEVEL_REVEAL (6) - copy WIPE_SPEED tiles per frame from NonDisplayScreen to
+;                    DisplayScreen (reverse-wipe).  When done, call
 ;                    DrawStaticActors and return to GameRun (2).
 ;==============================================================================
 
@@ -2113,7 +2124,7 @@ LevelTransitionRun:
     rts
 
     ; -----------------------------------------------------------------------
-    ; LEVEL_REVEAL phase: copy WIPE_SPEED tiles from ScreenSave to ScreenStatic
+    ; LEVEL_REVEAL phase: copy WIPE_SPEED tiles from NonDisplayScreen to DisplayScreen
     ; -----------------------------------------------------------------------
 .reveal_phase
     move.w      WipeTilesDone(a5),d7
@@ -2132,7 +2143,7 @@ LevelTransitionRun:
     lea         WipeTileY(a5),a0
     move.b      (a0,d7.w),d1            ; d1 = tile Y (0..8)
 
-    bsr         ClearStaticBlock        ; copy tile from ScreenSave -> ScreenStatic
+    bsr         RestoreBackgroundTile        ; copy tile from NonDisplayScreen -> DisplayScreen
 
     addq.w      #1,d7
     dbra        d6,.reveal_loop
@@ -2142,8 +2153,10 @@ LevelTransitionRun:
     rts
 
 .reveal_done
-    ; All tiles revealed - restore actor tiles and resume gameplay
-    bsr         DrawStaticActors        ; blit actor tiles onto ScreenStatic
+    ; All tiles revealed - restore actor tiles, initialize Level and resume gameplay
+    bsr         DrawPlayersAndActors
+    bsr         LevelIntroSetup
+
     move.w      #GAME_RUN,GameStatus(a5)       ; return to GameRun (state 2)
     rts
 
@@ -2404,8 +2417,8 @@ WipeOppositeTable:
 ;
 ; Called from LevelTransitionRun when the LEVEL_HOLD countdown reaches zero.
 ;
-; Builds the new level's background into ScreenSave only (CopySaveToStatic,
-; DrawStaticActors, and CopyStaticToBuffers are skipped so ScreenStatic stays
+; Builds the new level's background into NonDisplayScreen only (CopySaveToStatic,
+; DrawStaticActors, and CopyStaticToBuffers are skipped so DisplayScreen stays
 ; black from the completed wipe).  Then reverses WipeTileX/Y to give the
 ; directional opposite traversal order for the reveal, resets WipeTilesDone,
 ; and advances GameStatus to LEVEL_REVEAL.
@@ -2416,22 +2429,11 @@ WipeOppositeTable:
 LevelRevealSetup:
     PUSHALL
 
-    clr.w       PlayerCount(a5)         ; reset player count before re-init
-    clr.w       LevelComplete(a5)       ; clear level completion flag
-    clr.w       ActionStatus(a5)        ; reset action state to IDLE
-    bsr         LevelInit               ; init maps, load assets, create actors
-    bsr         DrawWalls               ; render wall tiles into ScreenSave
-    bsr         DrawButtons             ; render UI strip into ScreenSave
-    bsr         DrawLadders             ; overlay ladder tiles into ScreenSave
-    bsr         DrawShadows             ; overlay shadow tiles into ScreenSave
-    ; CopySaveToStatic   - SKIPPED: ScreenStatic stays black from the completed wipe
-    ; DrawStaticActors   - SKIPPED: LevelTransitionRun.reveal_done calls it after reveal
-    ; DrawInitialPlayers - SKIPPED: sprites hidden by LevelIntroSetup below anyway
-    bsr         LevelIntroSetup         ; hide player sprites, set ActionStatus=ACTION_INTRO
-    ; CopyStaticToBuffers - SKIPPED: ScreenStatic is black; nothing to push to Screen1
-
     bsr         WipeReverseBuffer       ; reverse WipeTileX/Y for directional opposite order
     clr.w       WipeTilesDone(a5)       ; reset tile counter for the reveal pass
+
+    bsr DrawMap 
+
     move.w      #LEVEL_REVEAL,GameStatus(a5)
 
     POPALL

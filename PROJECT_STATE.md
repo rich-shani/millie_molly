@@ -28,7 +28,7 @@ Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written 
 - **Enemy death cloud animation**: When PlayerKillEnemy kills an enemy, a 7-frame cloud puff (SPRITE_CLOUD_A..G) plays at the enemy's tile for CLOUD_TOTAL_TICKS (42 VBlanks, ~840ms PAL)
 
 ### In Progress / TODO
-- **Actor fall blit mask bug**: When an actor falls and lands, the background under the tile is not shown correctly at the final position (transparent areas show stale actor graphics instead of background). Root cause identified (ClearStaticBlock uses tile-rounded Y coordinates, missing sub-pixel spillover into the landing tile) but fix not yet verified — previous attempt reverted.
+- **Actor fall blit mask bug**: When an actor falls and lands, the background under the tile is not shown correctly at the final position (transparent areas show stale actor graphics instead of background). Root cause identified (RestoreBackgroundTile uses tile-rounded Y coordinates, missing sub-pixel spillover into the landing tile) but fix not yet verified — previous attempt reverted.
 - **Cloud animation z-order**: Cloud plays in bitplanes; player uses hardware sprites (always in front of bitplanes). Copper BPLCON2 trick (Option 1) was agreed upon but not yet implemented — would insert WAIT+MOVE pairs into cpTest copper list to give bitplane priority over sprites for the cloud tile's scanlines only.
 - Fall animation easing refinement
 - Rewind/undo mechanic
@@ -48,7 +48,7 @@ Enemies now visually animate through their 4 tile frames while alive on screen.
 - Frame index: `(TickCounter / ENEMY_ANIM_TICKS) & 3` → 0..3, same for all enemies (in sync)
 - For each live, non-falling, non-impact actor of type `BLOCK_ENEMYFALL` or `BLOCK_ENEMYFLOAT`:
   - Updates `Actor_SpriteOffset` to `TILE_ENEMYFALLA + frame` or `TILE_ENEMYFLOATA + frame`
-  - `ClearStaticBlock` + `ActorDrawStatic` to redraw with new frame
+  - `RestoreBackgroundTile` + `ActorDrawStatic` to redraw with new frame
   - `PUSHM d5/a2` / `POPM d5/a2` around `ActorDrawStatic` (PasteTile clobbers a2)
 
 **Constants** (`const.asm`):
@@ -68,8 +68,8 @@ When an enemy is killed, a 7-frame cloud puff animation plays at the enemy's til
 - **`player.asm`** (`ActionCloudActors`): Iterates `CloudActors[0..CloudActorsCount-1]` each frame:
   - Skips entries with `Actor_CloudTick == 0` (done)
   - Frame index: `(Actor_CloudTick - 1) / CLOUD_FRAME_TICKS`
-  - Draws: `ClearStaticBlock` → `DrawSprite(SPRITE_CLOUD_A + frame, tile_pixel_X, tile_pixel_Y)`
-  - On all 7 frames shown: final `ClearStaticBlock`, clears `Actor_CloudTick`
+  - Draws: `RestoreBackgroundTile` → `DrawSprite(SPRITE_CLOUD_A + frame, tile_pixel_X, tile_pixel_Y)`
+  - On all 7 frames shown: final `RestoreBackgroundTile`, clears `Actor_CloudTick`
   - `PUSH/POP a2` around `DrawSprite` (clobbers a2)
 - **`gamestatus.asm`** (`GameRun`): `bsr ActionCloudActors` called every frame before `AnimateEnemies`
 
@@ -82,7 +82,7 @@ CLOUD_TOTAL_TICKS   = 42       ; ~840ms PAL
 ```
 
 **Unresolved — Cloud z-order vs player sprite:**
-Hardware sprites (the player character, channels 0-3) are always composited in front of bitplane data by the Amiga display hardware. The cloud (drawn to ScreenStatic bitplanes) therefore appears behind the player. The agreed fix is the Copper BPLCON2 trick:
+Hardware sprites (the player character, channels 0-3) are always composited in front of bitplane data by the Amiga display hardware. The cloud (drawn to DisplayScreen bitplanes) therefore appears behind the player. The agreed fix is the Copper BPLCON2 trick:
 - Add `cpCloudPri` slot to `cpTest` copper list (two WAIT+MOVE pairs before COPPER_HALT)
 - Inactive state: both WAITs at VP=$EC (bottom border row, no sprites present) → zero-height window, no artifact
 - Active state: WAIT(cloud_top_scanline) + MOVE(BPLCON2,$0000) then WAIT(cloud_bottom+1) + MOVE(BPLCON2,$0024) → bitplanes in front for exactly the cloud tile's 24 scanlines
@@ -133,7 +133,7 @@ When an actor finishes a fall, a 4-frame smoke/puff animation plays over the lan
 **Implementation:**
 - `Actor_ImpactTick` (word) in Actor struct — 0=idle, 1..IMPACT_TOTAL_TICKS=animating
 - `SPRITE_SMOKE_A..D = 98..101` (row 8, cols 2–5); `IMPACT_FRAMES=4`, `IMPACT_FRAME_TICKS=4`, `IMPACT_TOTAL_TICKS=16`
-- `ActionFallActors` (player.asm): on fall completion sets `Actor_ImpactTick=1`; each tick: `ClearStaticBlock` + `ActorDrawStatic` + `DrawSprite` smoke overlay
+- `ActionFallActors` (player.asm): on fall completion sets `Actor_ImpactTick=1`; each tick: `RestoreBackgroundTile` + `ActorDrawStatic` + `DrawSprite` smoke overlay
 
 **Note**: Smoke frames at indices 98–101 provisional — verify against sprites.bin in UAE.
 
@@ -142,7 +142,7 @@ When an actor finishes a fall, a 4-frame smoke/puff animation plays over the lan
 1. **Player Start Position Bug**: Clear all player position/animation state in `LevelInit` before `InitPlayer`
 2. **Two-Player Visibility**: `DrawInitialPlayers` draws both players after `DrawMap`
 3. **Actor Background Restoration**: `move.w #1,Actor_HasMoved(a3)` in `PlayerMoveActor`
-4. **Push Animation Clearing**: `bsr ClearStaticBlock` each frame in `ActionPlayerPush`
+4. **Push Animation Clearing**: `bsr RestoreBackgroundTile` each frame in `ActionPlayerPush`
 5. **Multi-Tile Fall Clearing**: Loop-based tile counting instead of `divu`
 6. **Ladder Sprite Selection**: DirectionY non-zero = on ladder
 7. **Continuous Movement**: `ControlsHold` instead of `ControlsTrigger`
@@ -150,13 +150,13 @@ When an actor finishes a fall, a 4-frame smoke/puff animation plays over the lan
 ## Architecture Notes
 
 ### Display Pipeline
-1. **ScreenSave**: Clean background (walls, ladders, shadows) — never modified at runtime
-2. **ScreenStatic**: Working display buffer; Copper list points directly at its bitplanes — all blits are immediately visible (no copy step needed each frame)
+1. **NonDisplayScreen**: Clean background (walls, ladders, shadows) — never modified at runtime
+2. **DisplayScreen**: Working display buffer; Copper list points directly at its bitplanes — all blits are immediately visible (no copy step needed each frame)
 3. **Screen1/2**: Used for CopyStaticToBuffers at level load only
 
 ### Blitter Operations
 - **$fca minterm** (masked tile blit): `D = (A & B) | (~A & C)` — draws actors/tiles with transparency
-- **$7ca minterm** (background restore): `D = (A & D) | (~A & C)` — copies from ScreenSave
+- **$7ca minterm** (background restore): `D = (A & D) | (~A & C)` — copies from NonDisplayScreen
 
 ### Register Conventions
 - a5 = Variables base pointer (maintained throughout)
@@ -176,7 +176,7 @@ When an actor finishes a fall, a 4-frame smoke/puff animation plays over the lan
 - **main.asm**: Entry point, VBlank handler, utilities
 - **player.asm**: Player logic, movement, animation, push/fall/intro/burst/cloud actions
 - **actors.asm**: Actor pool management, AnimateEnemies, ClearMovedActors, player init
-- **mapstuff.asm**: Level rendering, ClearStaticBlock, PasteTile, DrawInitialPlayers, LevelInitPlayers
+- **mapstuff.asm**: Level rendering, RestoreBackgroundTile, PasteTile, DrawInitialPlayers, LevelInitPlayers
 - **gamestatus.asm**: Game state machine (TitleSetup, TitleRun, GameRun)
 - **title.asm**: Title screen implementation
 - **controls.asm**: Control input handling
@@ -225,10 +225,10 @@ uae --fullscreen
 
 ## Key Insights for Future Work
 1. **Blitter is the performance constraint**: All rendering must use Blitter, never CPU blits
-2. **ScreenStatic IS the display**: Copper patches cpPlanes to point directly at ScreenStatic bitplanes — blits are immediately visible; no per-frame copy needed
+2. **DisplayScreen IS the display**: Copper patches cpPlanes to point directly at DisplayScreen bitplanes — blits are immediately visible; no per-frame copy needed
 3. **Sub-tile animation complexity**: 24 pixels per tile with pixel-by-pixel movement requires careful coordinate math
 4. **State machine simplicity**: DirectionY non-zero directly indicates ladder presence
-5. **Register management**: a5 as variables base must be maintained throughout; PUSHALL/POPALL used by ClearStaticBlock
+5. **Register management**: a5 as variables base must be maintained throughout; PUSHALL/POPALL used by RestoreBackgroundTile
 6. **Level data integrity**: Player start positions must exist in level data; `LevelInitPlayers` now sets Player_X/Y from GameMap scan
 7. **IntroDone dual use**: 0 = travelling, positive = hold countdown — avoids adding a separate variable
 8. **Hardware sprite priority**: Sprites 0-3 always in front of bitplanes; use BPLCON2 copper trick to invert for specific scanline ranges

@@ -19,7 +19,7 @@
 ;
 ; ButtonMaskTemp and LevelCountTemp (bss_c) are the working Chip RAM buffers
 ; that receive the composited button / level-counter graphics each frame before
-; they are blitted to ScreenStatic.
+; they are blitted to DisplayScreen.
 ;==============================================================================
 
 Button0Raw:

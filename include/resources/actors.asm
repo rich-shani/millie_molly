@@ -136,7 +136,7 @@ InitDummy:
 ; and offsets from the original map pointer for neighbours.  Relies on a0 still
 ; pointing to the current cell in GameMap at call time.
 ;
-; Actor_Static is set to 1 - dirt blocks are drawn once into ScreenStatic
+; Actor_Static is set to 1 - dirt blocks are drawn once into DisplayScreen
 ; and never animated (no need to update them each frame).
 ;==============================================================================
 
@@ -354,14 +354,14 @@ FUCK:
 
 
 ;==============================================================================
-; DrawStaticActors  -  Blit all active actors into ScreenStatic
+; DrawStaticActors  -  Blit all active actors into DisplayScreen
 ;
 ; Iterates through all live actors (via the flat Actors[] array) and calls
-; PasteTile to blit each actor's sprite tile onto ScreenStatic at its current
+; PasteTile to blit each actor's sprite tile onto DisplayScreen at its current
 ; pixel position.
 ;
 ; "Static" actors (dirt, push blocks) are drawn here during level init and
-; remain until explicitly cleared by ClearStaticBlock.
+; remain until explicitly cleared by RestoreBackgroundTile.
 ; Moving actors (enemies) are also blitted here when they arrive at a new tile.
 ;
 ; On entry:
@@ -391,7 +391,7 @@ DrawStaticActors:
     moveq       #0,d2
     move.w      Actor_SpriteOffset(a3),d2  ; d2 = tile index in TileSet
 
-    lea         ScreenStatic,a1            ; destination: the static screen buffer
+    lea         DisplayScreen,a1            ; destination: the static screen buffer
     bsr         PasteTile                  ; blit tile to screen
 
 .notactive
@@ -429,7 +429,7 @@ ActorsSavePos:
 
 
 ;==============================================================================
-; ClearFrozenPlayer  -  Erase the frozen (inactive) player from ScreenStatic
+; ClearFrozenPlayer  -  Erase the frozen (inactive) player from DisplayScreen
 ;
 ; If the frozen player has fallen since the last frame (Player_Fallen set),
 ; clears the tile at its previous position.  Called from ActionIdle before
@@ -445,7 +445,7 @@ ClearFrozenPlayer:
 
     move.w      Player_PrevX(a4),d0        ; previous tile X
     move.w      Player_PrevY(a4),d1        ; previous tile Y
-    bsr         ClearStaticBlock           ; erase old tile from ScreenStatic
+    bsr         RestoreBackgroundTile           ; erase old tile from DisplayScreen
 
 .nofall
     POP         a4                         ; restore active player pointer
@@ -457,8 +457,8 @@ ClearFrozenPlayer:
 ;
 ; Any actor that has Actor_HasMoved set (was repositioned this frame) needs to
 ; be erased from its old screen position before being redrawn at the new one.
-; This is done by blitting the corresponding tile from ScreenSave over the
-; old position in ScreenStatic.
+; This is done by blitting the corresponding tile from NonDisplayScreen over the
+; old position in DisplayScreen.
 ;==============================================================================
 
 ClearMovedActors:
@@ -479,7 +479,7 @@ ClearMovedActors:
     ; Clear the actor's PREVIOUS screen position
     move.w      Actor_PrevX(a3),d0         ; previous tile column
     move.w      Actor_PrevY(a3),d1         ; previous tile row
-    bsr         ClearStaticBlock           ; restore background at old position
+    bsr         RestoreBackgroundTile           ; restore background at old position
 
 .next
     add.w       #Actor_Sizeof,a3
@@ -589,11 +589,11 @@ SortActors:
 ;
 ; Per animated actor:
 ;   1. Update Actor_SpriteOffset to the new frame tile index.
-;   2. ClearStaticBlock  - restore background from ScreenSave.
-;   3. ActorDrawStatic   - blit new tile into ScreenStatic.
+;   2. RestoreBackgroundTile  - restore background from NonDisplayScreen.
+;   3. ActorDrawStatic   - blit new tile into DisplayScreen.
 ;
 ; PUSHM d5/a2 / POPM d5/a2 guards ActorDrawStatic (PasteTile clobbers a2).
-; ClearStaticBlock uses PUSHALL internally so all registers survive it.
+; RestoreBackgroundTile uses PUSHALL internally so all registers survive it.
 ;==============================================================================
 
 AnimateEnemies:
@@ -645,7 +645,7 @@ AnimateEnemies:
     ; Restore background then blit new tile
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         ClearStaticBlock            ; PUSHALL/POPALL: all regs preserved
+    bsr         RestoreBackgroundTile            ; PUSHALL/POPALL: all regs preserved
 
     PUSHM       d5/a2                       ; ActorDrawStatic -> PasteTile clobbers a2
     bsr         ActorDrawStatic

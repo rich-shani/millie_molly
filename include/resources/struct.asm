@@ -122,7 +122,7 @@ Actor_HasFalled:          rs.w    1   ; flag: actor is in a fall animation
 Actor_Type:               rs.w    1   ; original BLOCK_xxx type from the map
 Actor_SpriteOffset:       rs.w    1   ; tile index into TileSet for rendering
 Actor_CanFall:            rs.w    1   ; 1 = subject to gravity
-Actor_Static:             rs.w    1   ; 1 = drawn once into ScreenStatic (no update)
+Actor_Static:             rs.w    1   ; 1 = drawn once into DisplayScreen (no update)
 Actor_Delta:              rs.l    1   ; fixed-point easing accumulator (push anim)
 Actor_FallY:              rs.w    1   ; pixel target for end of fall animation
 Actor_ImpactTick:         rs.w    1   ; landing smoke tick: 0=idle, 1..IMPACT_TOTAL_TICKS=animating
@@ -134,7 +134,7 @@ Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 ; Clean record  (Clean_Sizeof bytes)
 ;
 ; A small descriptor used when scheduling a screen area to be "cleaned"
-; (restored from ScreenSave to ScreenStatic) after an actor has moved away.
+; (restored from NonDisplayScreen to DisplayScreen) after an actor has moved away.
 ; Currently used by the blitter clear routines.
 ;
 ;   Clean_ScreenOffset - byte offset from the start of the screen buffer

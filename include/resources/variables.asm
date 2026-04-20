@@ -154,7 +154,7 @@ ActionCounter:        rs.w    1   ; push animation frame counter (0..PUSH_STEPS-
 ; TitleStars - array of TITLE_STAR_COUNT (4) star records, each a word pair:
 ;   word 0 = X position (pixel, wraps at 3*32)
 ;   word 1 = Y position (pixel, wraps at TITLE_STAR_COUNT*32*3)
-;   Stars are rendered by BlitStar32 on plane 4 of ScreenStatic.
+;   Stars are rendered by BlitStar32 on plane 4 of DisplayScreen.
 ;------------------------------------------------------------------------------
 TitleStars:           rs.l    TITLE_STAR_COUNT    ; 4 star {X,Y} word pairs
 
@@ -173,7 +173,7 @@ FallenActorsCount:    rs.w    1           ; number of currently-falling actors
 ; Pre-computed blitter clear masks
 ;
 ; ClearMasks holds 16 longword mask values (one per possible X sub-tile pixel
-; offset 0..15) used by ClearActor to cleanly erase an actor from ScreenStatic.
+; offset 0..15) used by ClearActor to cleanly erase an actor from DisplayScreen.
 ; Built at startup by CreateClearMasks.
 ; Indexed as:  (a2, d1.w*4)  where d1 = d0 AND $f  (pixel offset mod 16).
 ;------------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The game uses four screen-sized buffers in Chip RAM, plus hardware sprites managed through the copper list. The key distinction is between **what the player sees** (ScreenStatic, displayed directly by the copper) and **the clean background reference** (ScreenSave, never displayed directly).
+The game uses four screen-sized buffers in Chip RAM, plus hardware sprites managed through the copper list. The key distinction is between **what the player sees** (DisplayScreen, displayed directly by the copper) and **the clean background reference** (NonDisplayScreen, never displayed directly).
 
 ---
 
@@ -20,23 +20,23 @@ AllChip:
   SpriteMask      - blitter mask for actor sprites (69,120 bytes)
   Screen1         - 45,360 bytes  (legacy double-buffer slot, not displayed)
   Screen2         - 45,360 bytes  (legacy double-buffer slot, not displayed)
-  ScreenStatic    - 45,360 bytes  THE LIVE DISPLAY BUFFER
-  ScreenSave      - 45,360 bytes  clean background reference (never shown)
+  DisplayScreen    - 45,360 bytes  THE LIVE DISPLAY BUFFER
+  NonDisplayScreen      - 45,360 bytes  clean background reference (never shown)
   ScreenMemEnd    - 200-byte guard region (sentinel = -1)
 ```
 
-### ScreenStatic
-The buffer that is **actually displayed on screen**. The copper list bitplane pointers (`BPL1PTH/L` through `BPL5PTH/L`) are permanently loaded with the physical address of ScreenStatic at startup and never changed at runtime. Every pixel the player sees comes from ScreenStatic.
+### DisplayScreen
+The buffer that is **actually displayed on screen**. The copper list bitplane pointers (`BPL1PTH/L` through `BPL5PTH/L`) are permanently loaded with the physical address of DisplayScreen at startup and never changed at runtime. Every pixel the player sees comes from DisplayScreen.
 
-Everything that draws to the screen — wall tiles, actor tiles, player sprites, the intro star — writes into ScreenStatic.
+Everything that draws to the screen — wall tiles, actor tiles, player sprites, the intro star — writes into DisplayScreen.
 
-### ScreenSave
+### NonDisplayScreen
 A **clean copy of the background** with no actors on it. It contains walls, ladders, shadows, and the UI strip. Actors are never blitted here.
 
-ScreenSave is used as the source when erasing: to remove an actor from ScreenStatic, the corresponding tile area is copied back from ScreenSave (restoring the clean background underneath). This is faster and more correct than trying to redraw from scratch.
+NonDisplayScreen is used as the source when erasing: to remove an actor from DisplayScreen, the corresponding tile area is copied back from NonDisplayScreen (restoring the clean background underneath). This is faster and more correct than trying to redraw from scratch.
 
 ### Screen1 / Screen2
-Legacy double-buffer storage. The game was originally designed for double-buffering but currently runs in single-buffer mode: both `ScreenPtrs` entries point to `Screen1`, and the copper always points at `ScreenStatic`. Screen1 and Screen2 receive a copy of ScreenStatic at level load time via `CopyStaticToBuffers`, but are not otherwise used during gameplay.
+Legacy double-buffer storage. The game was originally designed for double-buffering but currently runs in single-buffer mode: both `ScreenPtrs` entries point to `Screen1`, and the copper always points at `DisplayScreen`. Screen1 and Screen2 receive a copy of DisplayScreen at level load time via `CopyStaticToBuffers`, but are not otherwise used during gameplay.
 
 ---
 
@@ -71,18 +71,18 @@ The blitter `BLTCMOD` / `BLTDMOD` are set to `TILE_BLT_MOD` (= `SCREEN_MOD` = 16
 
 ---
 
-## How the Copper Displays ScreenStatic
+## How the Copper Displays DisplayScreen
 
-At startup `GameCopperInit` patches the static copper list (`cpTest`) by writing the physical addresses of all five bitplanes of ScreenStatic into the `cpPlanes` section:
+At startup `GameCopperInit` patches the static copper list (`cpTest`) by writing the physical addresses of all five bitplanes of DisplayScreen into the `cpPlanes` section:
 
 ```asm
-move.l  #ScreenStatic, d0
+move.l  #DisplayScreen, d0
 ; loop SCREEN_DEPTH times:
 ;   write high word to BPLxPTH, low word to BPLxPTL
 ;   advance d0 by SCREEN_WIDTH_BYTE (= 42) for the next plane
 ```
 
-Because the bitplanes are interleaved, each plane starts 42 bytes after the previous one within the same buffer. The copper list is never updated during gameplay — Agnus always fetches from ScreenStatic. Any write to ScreenStatic is visible on the very next frame.
+Because the bitplanes are interleaved, each plane starts 42 bytes after the previous one within the same buffer. The copper list is never updated during gameplay — Agnus always fetches from DisplayScreen. Any write to DisplayScreen is visible on the very next frame.
 
 Hardware sprites are managed separately (see below).
 
@@ -109,29 +109,29 @@ All rendering uses the Amiga Blitter. The main minterms:
 | Minterm | Code  | Operation                    | Used by                              |
 |---------|-------|------------------------------|--------------------------------------|
 | `$FCA`  | A&B\|~A&C | mask-select: A=1→tile(B), A=0→background(C) | PasteTile, DrawSprite, ActorDrawStatic |
-| `$7CA`  | ~A&B&C \| A&B \| ~A&~B&C | equivalent: copy B→D where mask=1, keep C→D where mask=0 | ClearStaticBlock, ClearPlayer |
+| `$7CA`  | ~A&B&C \| A&B \| ~A&~B&C | equivalent: copy B→D where mask=1, keep C→D where mask=0 | RestoreBackgroundTile, ClearPlayer |
 | `$0A`   | ~A&C  | zero pixels in tile area, preserve guard bits | WipeBlitBlack                       |
 | `$D0C`  | A\|B  | OR shadow pixels onto destination | ShadowTile                       |
 
 Blitter channels:
 - **A** = mask (TileMask, SpriteMask, or constant `$FFFF` from `BLTADAT`)
-- **B** = source graphic (TileSet data, Sprites data, or ScreenSave)
-- **C** = destination background (ScreenStatic or ScreenSave, for guard-bit preservation)
-- **D** = output (ScreenStatic or ScreenSave)
+- **B** = source graphic (TileSet data, Sprites data, or NonDisplayScreen)
+- **C** = destination background (DisplayScreen or NonDisplayScreen, for guard-bit preservation)
+- **D** = output (DisplayScreen or NonDisplayScreen)
 
 For a 24-pixel-wide tile blit into a buffer that is a multiple of 16 bits wide, tiles at pixel columns 0, 48, 96 … are word-aligned (shift = 0); tiles at pixel columns 24, 72, 120 … have a 1-byte (8-bit) shift. The shift is packed into bits 15:12 of BLTCON0 and the first/last word masks (`BLTAFWM` / `BLTALWM`) are set to `$FFFF/$FF00` (shift 0) or `$00FF/$FFFF` (shift 8) accordingly.
 
 ---
 
-## Building the Background: ScreenSave
+## Building the Background: NonDisplayScreen
 
-`ScreenSave` is built fresh at the start of every level by a fixed pipeline. Nothing outside this pipeline writes to ScreenSave.
+`NonDisplayScreen` is built fresh at the start of every level by a fixed pipeline. Nothing outside this pipeline writes to NonDisplayScreen.
 
 ### DrawMap pipeline (called at level load)
 
 ```
 LevelInit
-  └─ TurboClear(ScreenSave)        zero the entire buffer
+  └─ TurboClear(NonDisplayScreen)        zero the entire buffer
   └─ SetLevelAssets                decompress TileSet, load palette
   └─ GenTileMask                   build TileMask from TileSet
   └─ WallPaperLoadBase/Level       build GameMap, WallpaperWork
@@ -139,26 +139,26 @@ LevelInit
   └─ WallpaperMakeShadows          build WallpaperShadows overlay
   └─ InitGameObjects               create actor structs
 
-DrawWalls       → ScreenSave   (DrawTile: opaque blit, minterm not documented inline but tiles fill background)
-DrawButtons     → ScreenSave   (DrawLevelCounter + DrawButton: masked blit minterm $FCA)
-DrawLadders     → ScreenSave   (PasteTile: masked blit minterm $FCA, transparent)
-DrawShadows     → ScreenSave   (ShadowTile: OR-blit minterm $D0C)
+DrawWalls       → NonDisplayScreen   (DrawTile: opaque blit, minterm not documented inline but tiles fill background)
+DrawButtons     → NonDisplayScreen   (DrawLevelCounter + DrawButton: masked blit minterm $FCA)
+DrawLadders     → NonDisplayScreen   (PasteTile: masked blit minterm $FCA, transparent)
+DrawShadows     → NonDisplayScreen   (ShadowTile: OR-blit minterm $D0C)
 
-CopySaveToStatic               CPU longword copy: ScreenSave → ScreenStatic
-DrawStaticActors               PasteTile each actor tile → ScreenStatic
-DrawInitialPlayers             blit frozen-player sprites → ScreenStatic
+CopySaveToStatic               CPU longword copy: NonDisplayScreen → DisplayScreen
+DrawStaticActors               PasteTile each actor tile → DisplayScreen
+DrawInitialPlayers             blit frozen-player sprites → DisplayScreen
 LevelIntroSetup                hides hardware sprites; sets ActionStatus = ACTION_INTRO
-CopyStaticToBuffers            CPU longword copy: ScreenStatic → Screen1 AND Screen2
+CopyStaticToBuffers            CPU longword copy: DisplayScreen → Screen1 AND Screen2
 ```
 
 After this pipeline:
-- **ScreenSave** = walls + UI buttons + ladders + shadows (no actors, no players)
-- **ScreenStatic** = ScreenSave content + all actor tiles + frozen player sprites
-- **Screen1/Screen2** = copy of ScreenStatic (for the legacy double-buffer path, currently unused)
+- **NonDisplayScreen** = walls + UI buttons + ladders + shadows (no actors, no players)
+- **DisplayScreen** = NonDisplayScreen content + all actor tiles + frozen player sprites
+- **Screen1/Screen2** = copy of DisplayScreen (for the legacy double-buffer path, currently unused)
 
 ---
 
-## Drawing Actors onto ScreenStatic
+## Drawing Actors onto DisplayScreen
 
 ### ActorDrawStatic / PasteTile
 
@@ -169,51 +169,51 @@ ActorDrawStatic:
     d0 = Actor_X * 24   (pixel X)
     d1 = Actor_Y * 24   (pixel Y)
     d2 = Actor_SpriteOffset (index into TileSet / Sprites)
-    a1 = ScreenStatic
+    a1 = DisplayScreen
     bsr PasteTile
 ```
 
 `PasteTile` does a blitter blit using minterm `$FCA` (A&B | ~A&C):
 - A = TileMask[d2]   — the tile's transparency mask
 - B = TileSet[d2]    — the tile's pixel data
-- C = D = ScreenStatic at the computed pixel address
+- C = D = DisplayScreen at the computed pixel address
 
-Where mask = 1: actor pixel appears. Where mask = 0: existing ScreenStatic pixel is preserved. This correctly composites the actor over whatever background is already in ScreenStatic.
+Where mask = 1: actor pixel appears. Where mask = 0: existing DisplayScreen pixel is preserved. This correctly composites the actor over whatever background is already in DisplayScreen.
 
 ### DrawSprite (player cloud animations, frozen player)
 
-Same minterm `$FCA`, but reads from `Sprites` (the actor sprite sheet) and `SpriteMask` rather than `TileSet`/`TileMask`. Always targets ScreenStatic.
+Same minterm `$FCA`, but reads from `Sprites` (the actor sprite sheet) and `SpriteMask` rather than `TileSet`/`TileMask`. Always targets DisplayScreen.
 
 ---
 
-## Erasing Actors from ScreenStatic
+## Erasing Actors from DisplayScreen
 
-When an actor moves or dies, its previous tile position must be erased from ScreenStatic. Rather than redrawing the background from scratch, the clean background is **copied from ScreenSave**.
+When an actor moves or dies, its previous tile position must be erased from DisplayScreen. Rather than redrawing the background from scratch, the clean background is **copied from NonDisplayScreen**.
 
-### ClearStaticBlock (tile-aligned erase)
+### RestoreBackgroundTile (tile-aligned erase)
 
 ```asm
 ; d0 = tile X, d1 = tile Y
-ClearStaticBlock:
-    a0 = ScreenSave  (source: clean background)
-    a1 = ScreenStatic (destination: live display)
+RestoreBackgroundTile:
+    a0 = NonDisplayScreen  (source: clean background)
+    a1 = DisplayScreen (destination: live display)
     ; Blitter: minterm $7CA, A = constant $FFFF from BLTADAT
     ; gated by BLTAFWM/BLTALWM to restrict to tile width
-    ; B = ScreenSave, C = D = ScreenStatic
-    ; Result: within the masked tile area, D = B (ScreenSave overwrites ScreenStatic)
+    ; B = NonDisplayScreen, C = D = DisplayScreen
+    ; Result: within the masked tile area, D = B (NonDisplayScreen overwrites DisplayScreen)
 ```
 
 Used by `ClearMovedActors`, `PlayerKillActor`, `LevelRevealSetup` (via `LevelTransitionRun`), and the intro star trail.
 
 ### ClearPlayer / ClearActor
 
-Identical blitter logic to `ClearStaticBlock` but take pixel coordinates rather than tile coordinates. `ClearActor` additionally uses the pre-computed `ClearMasks` table to handle arbitrary sub-tile X offsets (actors can be mid-tile during movement animations).
+Identical blitter logic to `RestoreBackgroundTile` but take pixel coordinates rather than tile coordinates. `ClearActor` additionally uses the pre-computed `ClearMasks` table to handle arbitrary sub-tile X offsets (actors can be mid-tile during movement animations).
 
 ---
 
 ## Hardware Sprites (Player Characters)
 
-The player characters (Millie and Molly) are displayed as **Amiga hardware sprites**, not as blitted tiles. Hardware sprites are overlaid by the sprite DMA independently of the bitplane display — they appear on top of ScreenStatic without any blitter writes.
+The player characters (Millie and Molly) are displayed as **Amiga hardware sprites**, not as blitted tiles. Hardware sprites are overlaid by the sprite DMA independently of the bitplane display — they appear on top of DisplayScreen without any blitter writes.
 
 ### SpritePtrs and the copper list
 
@@ -234,10 +234,10 @@ The level-end transition demonstrates how the two buffers work together:
 ### LEVEL_WIPE phase (GameStatus = 3)
 
 `LevelTransitionRun` calls `WipeBlitBlack` for `WIPE_SPEED` tiles per frame. `WipeBlitBlack` uses minterm `$0A` (~A&C) with A = constant `$FFFF` gated by the tile-width masks:
-- Within the tile area: A=`$FFFF`, so ~A=0, result = 0 (black pixels written to ScreenStatic)
-- Outside the tile area: A=0, so ~A=`$FFFF`, result = C (ScreenStatic pixels preserved)
+- Within the tile area: A=`$FFFF`, so ~A=0, result = 0 (black pixels written to DisplayScreen)
+- Outside the tile area: A=0, so ~A=`$FFFF`, result = C (DisplayScreen pixels preserved)
 
-Only ScreenStatic is modified; ScreenSave is untouched.
+Only DisplayScreen is modified; NonDisplayScreen is untouched.
 
 ### LEVEL_HOLD phase (GameStatus = 4)
 
@@ -245,11 +245,11 @@ Counts down `WIPE_HOLD_TICKS` frames (all-black screen). When zero, calls `Level
 
 ### LevelRevealSetup
 
-Builds the new level into ScreenSave only (runs `LevelInit → DrawWalls → DrawButtons → DrawLadders → DrawShadows → LevelIntroSetup`). Skips `CopySaveToStatic`, `DrawStaticActors`, and `CopyStaticToBuffers` — ScreenStatic stays black. Reverses `WipeTileX/Y` for the opposite traversal order, sets GameStatus = `LEVEL_REVEAL`.
+Builds the new level into NonDisplayScreen only (runs `LevelInit → DrawWalls → DrawButtons → DrawLadders → DrawShadows → LevelIntroSetup`). Skips `CopySaveToStatic`, `DrawStaticActors`, and `CopyStaticToBuffers` — DisplayScreen stays black. Reverses `WipeTileX/Y` for the opposite traversal order, sets GameStatus = `LEVEL_REVEAL`.
 
 ### LEVEL_REVEAL phase (GameStatus = 5)
 
-`LevelTransitionRun` calls `ClearStaticBlock` for `WIPE_SPEED` tiles per frame. Each call copies that tile area from ScreenSave into ScreenStatic, progressively revealing the new level background from black. When all 126 tiles are restored, `DrawStaticActors` blits the actor tiles on top and `GameStatus` returns to `LEVEL_RUN` (2).
+`LevelTransitionRun` calls `RestoreBackgroundTile` for `WIPE_SPEED` tiles per frame. Each call copies that tile area from NonDisplayScreen into DisplayScreen, progressively revealing the new level background from black. When all 126 tiles are restored, `DrawStaticActors` blits the actor tiles on top and `GameStatus` returns to `LEVEL_RUN` (2).
 
 ---
 
@@ -257,18 +257,18 @@ Builds the new level into ScreenSave only (runs `LevelInit → DrawWalls → Dra
 
 | Operation                  | Writes to    | Reads from            |
 |----------------------------|--------------|-----------------------|
-| DrawWalls / DrawTile       | ScreenSave   | TileSet               |
-| DrawLadders / PasteTile    | ScreenSave   | TileSet, TileMask     |
-| DrawShadows / ShadowTile   | ScreenSave   | Shadows data          |
-| DrawButtons                | ScreenSave   | Button graphics       |
-| CopySaveToStatic           | ScreenStatic | ScreenSave            |
-| DrawStaticActors / PasteTile | ScreenStatic | TileSet, TileMask   |
-| DrawSprite (cloud/frozen)  | ScreenStatic | Sprites, SpriteMask   |
-| ClearStaticBlock           | ScreenStatic | ScreenSave            |
-| ClearPlayer / ClearActor   | ScreenStatic | ScreenSave            |
-| WipeBlitBlack              | ScreenStatic | ScreenStatic (guard bits) |
+| DrawWalls / DrawTile       | NonDisplayScreen   | TileSet               |
+| DrawLadders / PasteTile    | NonDisplayScreen   | TileSet, TileMask     |
+| DrawShadows / ShadowTile   | NonDisplayScreen   | Shadows data          |
+| DrawButtons                | NonDisplayScreen   | Button graphics       |
+| CopySaveToStatic           | DisplayScreen | NonDisplayScreen            |
+| DrawStaticActors / PasteTile | DisplayScreen | TileSet, TileMask   |
+| DrawSprite (cloud/frozen)  | DisplayScreen | Sprites, SpriteMask   |
+| RestoreBackgroundTile           | DisplayScreen | NonDisplayScreen            |
+| ClearPlayer / ClearActor   | DisplayScreen | NonDisplayScreen            |
+| WipeBlitBlack              | DisplayScreen | DisplayScreen (guard bits) |
 | ShowSprite (hardware sprite) | cpSprites copper list | SpritePtrs |
-| CopyStaticToBuffers        | Screen1, Screen2 | ScreenStatic       |
-| Copper / Agnus display     | (video output) | ScreenStatic        |
+| CopyStaticToBuffers        | Screen1, Screen2 | DisplayScreen       |
+| Copper / Agnus display     | (video output) | DisplayScreen        |
 
-**The invariant**: ScreenSave always holds a clean background. ScreenStatic is the composited frame that is displayed. Erasing anything from ScreenStatic is done by copying the corresponding area from ScreenSave.
+**The invariant**: NonDisplayScreen always holds a clean background. DisplayScreen is the composited frame that is displayed. Erasing anything from DisplayScreen is done by copying the corresponding area from NonDisplayScreen.

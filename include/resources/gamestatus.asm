@@ -11,7 +11,7 @@
 ;
 ;   0 - TitleSetup  (defined in title.asm)
 ;       One-shot initialisation of the title screen.  Copies the title graphic
-;       into ScreenStatic, sets up the title copper list, positions the four
+;       into DisplayScreen, sets up the title copper list, positions the four
 ;       star objects, then immediately advances GameStatus to TitleRun (1).
 ;
 ;   1 - TitleRun    (defined in title.asm)
@@ -35,13 +35,13 @@
 ;       then advances to LEVEL_HOLD (4).
 ;
 ;   5 - LEVEL_HOLD  (dispatches to LevelTransitionRun in mapstuff.asm)
-;       Holds the all-black screen while the next level is built into ScreenSave.
+;       Holds the all-black screen while the next level is built into NonDisplayScreen.
 ;       Counts down WipeHoldTick, then calls LevelRevealSetup and advances to
 ;       LEVEL_REVEAL (5).
 ;
 ;   6 - LEVEL_REVEAL  (dispatches to LevelTransitionRun in mapstuff.asm)
 ;       Per-frame handler for the level-entry reverse-wipe reveal.
-;       Restores WIPE_SPEED tiles from ScreenSave to ScreenStatic per frame,
+;       Restores WIPE_SPEED tiles from NonDisplayScreen to DisplayScreen per frame,
 ;       then draws actors and returns to GameRun (2).
 ;
 ; The JMPINDEX macro (macros.asm) converts the GameStatus word into a
