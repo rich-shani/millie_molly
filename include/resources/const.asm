@@ -537,10 +537,12 @@ CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 63
 ;------------------------------------------------------------------------------
 GAME_INIT           = 0     ; GameStatus: initialze status when Game loads
 GAME_TITLE          = 1     ; GameStatus: display title screen
-GAME_RUN            = 2     ; GameStatus: level is setup, and ready/playing
-LEVEL_WIPE          = 3     ; GameStatus: wipe in progress (tiles blitted black)
-LEVEL_HOLD          = 4     ; GameStatus: hold all-black while next level loads
-LEVEL_REVEAL        = 5     ; GameStatus: reverse-wipe reveal of the new level
+GAME_RUN            = 2     ; GameStatus: level is setup, and ready/playing'
+
+LEVEL_INIT          = 3     ; GameStatus: initializing a new level (loading data, etc.) 
+LEVEL_WIPE          = 4     ; GameStatus: wipe in progress (tiles blitted black)
+LEVEL_HOLD          = 5     ; GameStatus: hold all-black while next level loads
+LEVEL_REVEAL        = 6     ; GameStatus: reverse-wipe reveal of the new level
 
 NUM_WIPE_PATTERNS   = 8     ; must be a power of 2 (AND mask used for selection)
 WIPE_SPEED          = 2     ; tiles blitted per VBlank (63 frames ≈ 1.26s PAL)

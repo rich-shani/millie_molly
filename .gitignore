@@ -398,3 +398,4 @@ FodyWeavers.xsd
 *.sln.iml
 
 build/
+uae/dh0/main

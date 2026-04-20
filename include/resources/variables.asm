@@ -233,7 +233,7 @@ CloudActorsCount:     rs.w    1           ; number of actors ever added (reset a
 ; WipeTilesDone  - tiles blitted black so far; incremented by WIPE_SPEED each frame
 ; WipeHoldTick   - hold countdown after all tiles done; DrawMap fires when 0
 ; WipeTileX/Y    - WALL_PAPER_SIZE-byte arrays of tile coords in wipe order
-;                  filled by LevelWipeSetup before GameStatus becomes LEVEL_WIPE
+;                  filled by LevelSetup before GameStatus becomes LEVEL_WIPE
 ;------------------------------------------------------------------------------
 WipePattern:          rs.w    1
 WipeTilesDone:        rs.w    1
