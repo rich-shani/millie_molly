@@ -1,5 +1,3 @@
-Destroy enemy animation!!
-
 Fall speed looks like shite
 
 Kick animations

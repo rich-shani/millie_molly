@@ -94,7 +94,7 @@ GameStatusRun:
 GameRun:
     bsr         LevelTest            ; advance level if complete or F1/F2 pressed
     cmp.w       #GAME_RUN,GameStatus(a5) ; are we in GAME_RUN mode?
-    bne         .done                ; no (ie LEVEL_WIPE/HOLD/REVEAL): skip game logic
+    bne         .skip                ; no (ie LEVEL_WIPE/HOLD/REVEAL): skip game logic
 
     bsr         UpdateControls       ; read keyboard, compute trigger/hold bytes
 
@@ -104,5 +104,5 @@ GameRun:
     bsr         ActionCloudActors    ; animate any pending enemy death cloud animations
     bsr         AnimateEnemies       ; cycle ENEMYFALL/ENEMYFLOAT tile frames (2fps)
 
-.done
+.skip
     rts
