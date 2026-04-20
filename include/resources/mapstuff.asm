@@ -80,11 +80,6 @@ DrawMap:
     bsr           DrawButtons            ; render UI buttons and level counter
     bsr           DrawLadders            ; overlay ladder graphics
     bsr           DrawShadows            ; overlay shadow graphics
- ;   bsr           CopySaveToStatic       ; copy clean background to DisplayScreen
-;    bsr           DrawStaticActors       ; blit actor tiles on top of DisplayScreen
- ;   bsr           DrawInitialPlayers     ; draw both players at level start
-;    bsr           LevelIntroSetup        ; initialise intro star animation; hides player sprites
-;    bsr           CopyStaticToBuffers    ; copy to display buffers
 
     rts
 
@@ -94,12 +89,7 @@ DrawPlayersAndActors:
     bsr           DrawInitialPlayers     ; draw both players at level start
 
     rts 
-
-
- ;   bsr           LevelIntroSetup        ; initialise intro star animation; hides player sprites
- ;   bsr           CopyStaticToBuffers    ; copy to display buffers
-
- ;   rts 
+    
 
 ;==============================================================================
 ; DrawButtons  -  Render the UI strip on the right side of the screen
