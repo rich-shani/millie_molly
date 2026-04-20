@@ -24,6 +24,16 @@
 ;       Checks F1/F2 for level navigation (debug), reads player controls,
 ;       and calls PlayerLogic to advance the active player action state machine.
 ;
+;   3 - LevelWipeRun  (defined in mapstuff.asm)
+;       Per-frame handler for the end-of-level screen wipe.
+;       Progressively blacks out tiles in the chosen wipe pattern, holds,
+;       then loads the next level and advances to GAME_REVEAL (4).
+;
+;   4 - LevelRevealRun  (defined in mapstuff.asm)
+;       Per-frame handler for the level-entry reveal.
+;       Progressively restores tiles from ScreenSave in reverse-wipe order,
+;       then draws actors and returns to GameRun (2).
+;
 ; The JMPINDEX macro (macros.asm) converts the GameStatus word into a
 ; PC-relative jump through the word-offset table at .i.
 ;
@@ -41,13 +51,15 @@
 ;==============================================================================
 
 GameStatusRun:
-    move.w      GameStatus(a5),d0    ; load current state index (0, 1 or 2)
+    move.w      GameStatus(a5),d0    ; load current state index (0..4)
     JMPINDEX    d0                   ; computed jump through offset table below
 
 .i  ; jump-offset table - one signed word per state
-    dc.w        TitleSetup-.i        ; state 0 -> TitleSetup  (in title.asm)
-    dc.w        TitleRun-.i          ; state 1 -> TitleRun    (in title.asm)
-    dc.w        GameRun-.i           ; state 2 -> GameRun     (below)
+    dc.w        TitleSetup-.i        ; state 0 -> TitleSetup    (in title.asm)
+    dc.w        TitleRun-.i          ; state 1 -> TitleRun      (in title.asm)
+    dc.w        GameRun-.i           ; state 2 -> GameRun       (below)
+    dc.w        LevelWipeRun-.i      ; state 3 -> LevelWipeRun  (in mapstuff.asm)
+    dc.w        LevelRevealRun-.i    ; state 4 -> LevelRevealRun (in mapstuff.asm)
 
 
 ;==============================================================================
@@ -55,8 +67,9 @@ GameStatusRun:
 ;
 ; Sequence each frame:
 ;   1. LevelTest      - check if LevelComplete flag is set or F1/F2 pressed;
-;                       if so, increment/decrement LevelId and call DrawMap to
-;                       reload and redraw the level.
+;                       if LevelComplete, starts the wipe and returns early so
+;                       PlayerLogic does NOT run (preventing a sprite re-enable
+;                       in the same frame that LevelWipeSetup hid the sprites).
 ;   2. UpdateControls - sample keyboard, update ControlsHold / ControlsTrigger.
 ;   3. PlayerLogic    - run the active player's action state machine one step.
 ;                       The active player pointer is loaded from PlayerPtrs(a5)
@@ -70,6 +83,9 @@ GameStatusRun:
 
 GameRun:
     bsr         LevelTest            ; advance level if complete or F1/F2 pressed
+    cmp.w       #GAME_WIPE,GameStatus(a5) ; did LevelTest trigger a wipe?
+    beq         .done                ; yes: skip player logic so ShowSprite can't
+                                     ;      re-enable the sprites we just hid
 
     ;bsr        DrawPlayers          ; (disabled: sprite update inside PlayerLogic)
 
@@ -81,4 +97,5 @@ GameRun:
     bsr         ActionCloudActors    ; animate any pending enemy death cloud animations
     bsr         AnimateEnemies       ; cycle ENEMYFALL/ENEMYFLOAT tile frames (2fps)
 
+.done
     rts

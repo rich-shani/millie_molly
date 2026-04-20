@@ -445,7 +445,6 @@ ACTION_MOVE         = 1
 ACTION_FALL         = 2
 ACTION_PLAYERPUSH   = 3
 ACTION_INTRO        = 4     ; level intro star animation
-ACTION_BURST        = 5     ; burst of stars radiating from Molly's start tile
 
 ;------------------------------------------------------------------------------
 ; Enemy tile animation
@@ -456,9 +455,6 @@ ACTION_BURST        = 5     ; burst of stars radiating from Molly's start tile
 ;   frame_index = (TickCounter / ENEMY_ANIM_TICKS) & 3
 ;------------------------------------------------------------------------------
 ENEMY_ANIM_TICKS    = 12    ; VBlanks per enemy animation frame
-
-BURST_STAR_COUNT    = 8     ; number of radial burst stars (one per 45°)
-BURST_LIFE          = 50    ; VBlanks the burst runs (~1.0s PAL)
 
 
 ;------------------------------------------------------------------------------
@@ -479,7 +475,6 @@ BURST_LIFE          = 50    ; VBlanks the burst runs (~1.0s PAL)
 ;------------------------------------------------------------------------------
 SPRITE_STAR_LARGE   = 143   ; large blue star       (row 11, col 11)
 SPRITE_STAR_SMALL   = 141   ; small white star      (row 11, col  9)
-SPRITE_STAR_TINY    = 140   ; smaller white star    (row 11, col  8)
 INTRO_STEP_TICKS    = 6     ; VBlanks per one-tile step
 INTRO_TRAIL_LIFE    = 40    ; VBlanks each trail particle remains visible
 INTRO_TRAIL_MAX     = 16    ; trail pool size (>= INTRO_TRAIL_LIFE/INTRO_STEP_TICKS = 10 active steps)
@@ -506,5 +501,55 @@ SPRITE_CLOUD_E      = 136   ; cloud frame 4  (row 11, col 4)
 SPRITE_CLOUD_F      = 137   ; cloud frame 5  (row 11, col 5)
 SPRITE_CLOUD_G      = 138   ; cloud frame 6  (row 11, col 6)
 CLOUD_FRAMES        = 7
-CLOUD_FRAME_TICKS   = 6
-CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 42
+CLOUD_FRAME_TICKS   = 9
+CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 63
+
+
+;------------------------------------------------------------------------------
+; Level wipe transition
+;
+; At the end of each level a screen-wipe effect progressively blacks out every
+; tile before the next level loads.  The pattern is chosen at random from
+; NUM_WIPE_PATTERNS effects each time.
+;
+; WipeOppositeTable (in mapstuff.asm) maps each pattern index to its
+; directional inverse so a future reveal animation can use the matching effect.
+;
+; GAME_WIPE         - GameStatus value while the wipe is running (state 3)
+; GAME_REVEAL       - GameStatus value while the tile-by-tile reveal plays (state 4)
+; NUM_WIPE_PATTERNS - distinct wipe effects; MUST be a power of 2
+; WIPE_SPEED        - tiles blitted black per VBlank
+;                     126 tiles / 2 = 63 frames ≈ 1.26 s at 50 Hz PAL
+; WIPE_HOLD_TICKS   - extra frames to hold all-black before loading next level
+; WIPE_CENTER_X/Y   - tile coords of the screen centre for radial patterns
+; WIPE_MAX_DIST     - max Chebyshev distance from (7,4) in the 14×9 grid
+;
+; Pattern indices  (also used as WipeOppositeTable indices):
+;   WIPE_TOP_BOTTOM  (0) - row by row, top → bottom
+;   WIPE_BOTTOM_TOP  (1) - row by row, bottom → top
+;   WIPE_LEFT_RIGHT  (2) - column by column, left → right
+;   WIPE_RIGHT_LEFT  (3) - column by column, right → left
+;   WIPE_DIAG_TLBR   (4) - diagonal stripes, top-left → bottom-right
+;   WIPE_DIAG_BRTL   (5) - diagonal stripes, bottom-right → top-left
+;   WIPE_CENTER_OUT  (6) - from centre tile outward (Chebyshev distance)
+;   WIPE_CENTER_IN   (7) - from edges inward to centre
+;------------------------------------------------------------------------------
+GAME_WIPE           = 3
+GAME_REVEAL         = 4     ; GameStatus: reverse-wipe reveal of the new level
+
+NUM_WIPE_PATTERNS   = 8     ; must be a power of 2 (AND mask used for selection)
+WIPE_SPEED          = 2     ; tiles blitted per VBlank (63 frames ≈ 1.26s PAL)
+WIPE_HOLD_TICKS     = 20    ; frames to hold black before loading next level (~0.4s)
+
+WIPE_CENTER_X       = 7     ; centre tile column (0-based, 14-column grid)
+WIPE_CENTER_Y       = 4     ; centre tile row    (0-based,  9-row   grid)
+WIPE_MAX_DIST       = 7     ; max Chebyshev distance from (7,4) in 14×9 grid
+
+WIPE_TOP_BOTTOM     = 0
+WIPE_BOTTOM_TOP     = 1
+WIPE_LEFT_RIGHT     = 2
+WIPE_RIGHT_LEFT     = 3
+WIPE_DIAG_TLBR      = 4
+WIPE_DIAG_BRTL      = 5
+WIPE_CENTER_OUT     = 6
+WIPE_CENTER_IN      = 7

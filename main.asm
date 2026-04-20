@@ -123,7 +123,8 @@ LevelTest:
     tst.w      LevelComplete(a5)
     beq        .nope
     addq.w     #1,LevelId(a5)
-    bra        .draw
+    bsr        LevelWipeSetup       ; pick effect, fill order, switch to GAME_WIPE
+    rts                            ; return; GameStatusRun dispatches LevelWipeRun next frame
 
 .nope
     lea        Keys,a0

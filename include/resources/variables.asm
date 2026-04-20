@@ -86,7 +86,7 @@ Molly:                rs.b    Player_Sizeof   ; Molly's  player structure
 ;------------------------------------------------------------------------------
 ; Game state machine
 ;------------------------------------------------------------------------------
-GameStatus:           rs.w    1   ; 0=TitleSetup, 1=TitleRun, 2=GameRun
+GameStatus:           rs.w    1   ; 0=TitleSetup, 1=TitleRun, 2=GameRun, 3=WipeRun, 4=RevealRun
 
 ;------------------------------------------------------------------------------
 ; Display buffers
@@ -213,17 +213,6 @@ IntroTrailX:          rs.w    INTRO_TRAIL_MAX
 IntroTrailY:          rs.w    INTRO_TRAIL_MAX
 IntroTrailLife:       rs.w    INTRO_TRAIL_MAX
 
-;------------------------------------------------------------------------------
-; Burst star animation state
-;
-; After the large intro star holds at Molly's tile, BURST_STAR_COUNT small stars
-; radiate outward in a circle (one per 45°) for BURST_LIFE frames.
-; Positions are stored in 16.16 fixed-point (upper word = integer pixel).
-; Velocity is applied each frame via add.l from the BurstVelTable in player.asm.
-;------------------------------------------------------------------------------
-BurstLife:            rs.w    1                   ; countdown (BURST_LIFE..0)
-BurstStarX:           rs.l    BURST_STAR_COUNT    ; 16.16 FP pixel X per star
-BurstStarY:           rs.l    BURST_STAR_COUNT    ; 16.16 FP pixel Y per star
 
 ;------------------------------------------------------------------------------
 ; Cloud death animation actor list
@@ -236,5 +225,20 @@ BurstStarY:           rs.l    BURST_STAR_COUNT    ; 16.16 FP pixel Y per star
 ;------------------------------------------------------------------------------
 CloudActors:          rs.l    MAP_SIZE    ; up to 88 cloud animation actor pointers
 CloudActorsCount:     rs.w    1           ; number of actors ever added (reset at level load)
+
+;------------------------------------------------------------------------------
+; Level wipe transition state
+;
+; WipePattern    - chosen effect index (0..NUM_WIPE_PATTERNS-1)
+; WipeTilesDone  - tiles blitted black so far; incremented by WIPE_SPEED each frame
+; WipeHoldTick   - hold countdown after all tiles done; DrawMap fires when 0
+; WipeTileX/Y    - WALL_PAPER_SIZE-byte arrays of tile coords in wipe order
+;                  filled by LevelWipeSetup before GameStatus becomes GAME_WIPE
+;------------------------------------------------------------------------------
+WipePattern:          rs.w    1
+WipeTilesDone:        rs.w    1
+WipeHoldTick:         rs.w    1
+WipeTileX:            rs.b    WALL_PAPER_SIZE
+WipeTileY:            rs.b    WALL_PAPER_SIZE
 
 Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes
