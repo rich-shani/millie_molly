@@ -837,7 +837,7 @@ ActionIdle:
     bsr         CheckLevelDone         ; d3 = number of remaining enemies (0 = level done)
     tst.w       d3
     bne         .notdone
-    move.w      #1,LevelComplete(a5)  ; no enemiealmost s left -> level complete
+    move.w      #1,LevelComplete(a5)  ; no enemies left -> level complete
 
 .notdone
 .exit

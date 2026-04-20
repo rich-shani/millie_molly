@@ -2136,7 +2136,7 @@ LevelTransitionRun:
 .reveal_done
     ; All tiles revealed - restore actor tiles and resume gameplay
     bsr         DrawStaticActors        ; blit actor tiles onto ScreenStatic
-    move.w      #LEVEL_RUN,GameStatus(a5)       ; return to GameRun (state 2)
+    move.w      #GAME_RUN,GameStatus(a5)       ; return to GameRun (state 2)
     rts
 
 

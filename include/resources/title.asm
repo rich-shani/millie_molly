@@ -341,7 +341,7 @@ TitleRun:
 
     clr.b       KEY_F3(a0)             ; consume the keypress (prevent repeat)
     bsr         GameTestInit           ; set up game copper, sprites, DMA, draw first level
-    move.w      #LEVEL_RUN,GameStatus(a5)      ; advance to state 2 (GameRun)
+    move.w      #GAME_RUN,GameStatus(a5)      ; advance to state 2 (GameRun)
     rts                                ; return immediately - stars not needed this frame
 
 .nostart

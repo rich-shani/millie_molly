@@ -537,7 +537,7 @@ CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 63
 ;------------------------------------------------------------------------------
 GAME_INIT           = 0     ; GameStatus: initialze status when Game loads
 GAME_TITLE          = 1     ; GameStatus: display title screen
-LEVEL_RUN           = 2     ; GameStatus: level is setup, and ready/playing
+GAME_RUN            = 2     ; GameStatus: level is setup, and ready/playing
 LEVEL_WIPE          = 3     ; GameStatus: wipe in progress (tiles blitted black)
 LEVEL_HOLD          = 4     ; GameStatus: hold all-black while next level loads
 LEVEL_REVEAL        = 5     ; GameStatus: reverse-wipe reveal of the new level

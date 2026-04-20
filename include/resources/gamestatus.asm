@@ -90,11 +90,8 @@ GameStatusRun:
 
 GameRun:
     bsr         LevelTest            ; advance level if complete or F1/F2 pressed
-    cmp.w       #LEVEL_WIPE,GameStatus(a5) ; did LevelTest trigger a level transition?
-    bge         .done                ; yes (LEVEL_WIPE/HOLD/REVEAL): skip player logic so
-                                     ; ShowSprite can't re-enable sprites we just hid
-
-    ;bsr        DrawPlayers          ; (disabled: sprite update inside PlayerLogic)
+    cmp.w       #GAME_RUN,GameStatus(a5) ; are we in GAME_RUN mode?
+    bne         .done                ; no (ie LEVEL_WIPE/HOLD/REVEAL): skip game logic
 
     bsr         UpdateControls       ; read keyboard, compute trigger/hold bytes
 
