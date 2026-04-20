@@ -1936,16 +1936,23 @@ WipeBlitBlack:
 ;==============================================================================
 ; Level Wipe Transition  -  Screen wipe effect at end of each level
 ;
-; LevelWipeSetup  - called once from LevelTest when LevelComplete is set.
-;                   Picks a random pattern, fills WipeTileX/Y with the ordered
-;                   tile coordinates, hides player sprites, and advances
-;                   GameStatus to GAME_WIPE (3).
+; LevelWipeSetup      - called once from LevelTest when LevelComplete is set.
+;                       Picks a random pattern, fills WipeTileX/Y with the
+;                       ordered tile coordinates, hides player sprites, and
+;                       advances GameStatus to LEVEL_WIPE (3).
 ;
-; LevelWipeRun    - state 3 handler, called every VBlank from GameStatusRun.
-;                   Phase 1: blits TILE_BACK over WIPE_SPEED tiles per frame.
-;                   Phase 2: holds the all-black screen for WIPE_HOLD_TICKS.
-;                   Phase 3: calls DrawMap for the next level, returns to
-;                            state 2 (GameRun).
+; LevelTransitionRun  - states 3/4/5 handler, called every VBlank from
+;                       GameStatusRun.  Dispatches on GameStatus:
+;                       LEVEL_WIPE  : blits WIPE_SPEED tiles black per frame;
+;                                     when done sets WipeHoldTick, → LEVEL_HOLD.
+;                       LEVEL_HOLD  : counts down WipeHoldTick; calls
+;                                     LevelRevealSetup when zero, → LEVEL_REVEAL.
+;                       LEVEL_REVEAL: copies WIPE_SPEED tiles from ScreenSave;
+;                                     when done calls DrawStaticActors, → GameRun.
+;
+; LevelRevealSetup    - called from LevelTransitionRun when hold expires.
+;                       Builds next level into ScreenSave, reverses WipeTileX/Y,
+;                       and advances to LEVEL_REVEAL (5).
 ;
 ; Fill routines   - each fills WipeTileX and WipeTileY with 126 tile coords
 ;                   (WALL_PAPER_SIZE = 14x9) in the desired visual order.
@@ -1961,11 +1968,11 @@ WipeBlitBlack:
 ; Called from LevelTest (main.asm) immediately after LevelId is incremented.
 ;
 ; Actions:
-;   1. Reset WipeTilesDone = 0 and WipeHoldTick = WIPE_HOLD_TICKS.
+;   1. Reset WipeTilesDone = 0.
 ;   2. Pick a random wipe pattern using RANDOMWORD and store in WipePattern.
 ;   3. Call the appropriate WipeFill routine to build WipeTileX/Y arrays.
 ;   4. Hide both hardware player sprites (set SpritePtrs to NullSprite).
-;   5. Set GameStatus = GAME_WIPE so GameStatusRun dispatches LevelWipeRun.
+;   5. Set GameStatus = LEVEL_WIPE so GameStatusRun dispatches LevelTransitionRun.
 ;
 ; On entry: a5 = Variables base, a6 = CUSTOM.
 ;==============================================================================
@@ -1973,9 +1980,8 @@ WipeBlitBlack:
 LevelWipeSetup:
     PUSHALL
 
-    ; Initialise wipe counters
+    ; Initialise wipe counter (WipeHoldTick is set when wipe completes)
     clr.w       WipeTilesDone(a5)
-    move.w      #WIPE_HOLD_TICKS,WipeHoldTick(a5)
 
     ; Pick random pattern (0..NUM_WIPE_PATTERNS-1)
     RANDOMWORD                          ; d0.w = pseudo-random value
@@ -2006,7 +2012,7 @@ LevelWipeSetup:
     dbra        d7,.patch_sprites
 
     ; Advance to wipe state
-    move.w      #GAME_WIPE,GameStatus(a5)
+    move.w      #LEVEL_WIPE,GameStatus(a5)
 
     POPALL
     rts
@@ -2024,40 +2030,46 @@ LevelWipeSetup:
 
 
 ;==============================================================================
-; LevelWipeRun  -  Per-frame wipe state handler (GameStatus = GAME_WIPE)
+; LevelTransitionRun  -  Per-frame level transition handler
 ;
-; Called every VBlank from GameStatusRun while GameStatus = 3 (GAME_WIPE).
-; No player input is processed during the wipe.
+; Called every VBlank from GameStatusRun for states 3, 4, and 5.
+; Dispatches to the appropriate phase based on GameStatus.
+; No player input is processed during any transition state.
 ;
-; Phase 1 (WipeTilesDone < WALL_PAPER_SIZE):
-;   Zero-fills WIPE_SPEED tiles black per frame, advancing WipeTilesDone.
+; LEVEL_WIPE (3) - blit WIPE_SPEED tiles black per frame until all done,
+;                  then set WipeHoldTick and advance to LEVEL_HOLD (4).
 ;
-; Phase 2 (WipeTilesDone >= WALL_PAPER_SIZE, WipeHoldTick > 0):
-;   Counts down WipeHoldTick; screen stays fully black.
+; LEVEL_HOLD (4) - count down WipeHoldTick each frame; when zero call
+;                  LevelRevealSetup which builds the new level and advances
+;                  to LEVEL_REVEAL (5).
 ;
-; Phase 3 (WipeHoldTick = 0):
-;   Builds the new level into ScreenSave only (skips CopySaveToStatic so
-;   ScreenStatic stays black), reverses WipeTileX/Y for the reveal, and
-;   advances GameStatus = GAME_REVEAL (4) so LevelRevealRun takes over.
+; LEVEL_REVEAL (5) - copy WIPE_SPEED tiles per frame from ScreenSave to
+;                    ScreenStatic (reverse-wipe).  When done, call
+;                    DrawStaticActors and return to GameRun (2).
 ;==============================================================================
 
-LevelWipeRun:
+LevelTransitionRun:
+    move.w      GameStatus(a5),d5       ; d5 = current transition state (3/4/5)
+    cmp.w       #LEVEL_HOLD,d5
+    beq         .hold_phase
+    cmp.w       #LEVEL_REVEAL,d5
+    beq         .reveal_phase
+
+    ; -----------------------------------------------------------------------
+    ; LEVEL_WIPE phase: blit WIPE_SPEED tiles black this frame
+    ; -----------------------------------------------------------------------
     move.w      WipeTilesDone(a5),d7
     cmp.w       #WALL_PAPER_SIZE,d7
-    bge         .hold_phase
+    bge         .wipe_done
 
-    ; --- Phase 1: blit WIPE_SPEED tiles this frame ---
     moveq       #WIPE_SPEED-1,d6
-.blit_loop
+.wipe_loop
     cmp.w       #WALL_PAPER_SIZE,d7
-    bge         .blit_done
+    bge         .wipe_blit_done
 
-    ; Get tile X from WipeTileX[d7]
     clr.l       d0
     lea         WipeTileX(a5),a0
     move.b      (a0,d7.w),d0            ; d0 = tile X (0..13)
-
-    ; Get tile Y from WipeTileY[d7]
     clr.l       d1
     lea         WipeTileY(a5),a0
     move.b      (a0,d7.w),d1            ; d1 = tile Y (0..8)
@@ -2065,41 +2077,66 @@ LevelWipeRun:
     bsr         WipeBlitBlack           ; zero-fill this tile (black)
 
     addq.w      #1,d7
-    dbra        d6,.blit_loop
+    dbra        d6,.wipe_loop
 
-.blit_done
+.wipe_blit_done
     move.w      d7,WipeTilesDone(a5)
     rts
 
-    ; --- Phase 2: hold the black screen ---
+.wipe_done
+    ; All tiles blitted black - start hold countdown, advance to LEVEL_HOLD
+    move.w      #WIPE_HOLD_TICKS,WipeHoldTick(a5)
+    move.w      #LEVEL_HOLD,GameStatus(a5)
+    rts
+
+    ; -----------------------------------------------------------------------
+    ; LEVEL_HOLD phase: count down hold ticks, then trigger reveal setup
+    ; -----------------------------------------------------------------------
 .hold_phase
     move.w      WipeHoldTick(a5),d0
-    beq         .load_level
+    beq         .hold_done
     subq.w      #1,d0
     move.w      d0,WipeHoldTick(a5)
     rts
 
-    ; --- Phase 3: load next level into ScreenSave, set up reverse-wipe reveal ---
-    ; Run the DrawMap sub-steps that build ScreenSave (background), but skip the
-    ; three steps that write to ScreenStatic.  ScreenStatic is already all-black
-    ; from the completed wipe, so there is nothing to re-zero.
-.load_level
-    clr.w       PlayerCount(a5)         ; reset player count before re-init
-    clr.w       LevelComplete(a5)       ; clear level completion flag
-    clr.w       ActionStatus(a5)        ; reset action state to IDLE
-    bsr         LevelInit               ; init maps, load assets, create actors
-    bsr         DrawWalls               ; render wall tiles into ScreenSave
-    bsr         DrawButtons             ; render UI strip into ScreenSave
-    bsr         DrawLadders             ; overlay ladder tiles into ScreenSave
-    bsr         DrawShadows             ; overlay shadow tiles into ScreenSave
-    ; CopySaveToStatic  - SKIPPED: ScreenStatic stays black from the completed wipe
-    ; DrawStaticActors  - SKIPPED: LevelRevealRun.reveal_done will call it after reveal
-    ; DrawInitialPlayers - SKIPPED: sprites are hidden by LevelIntroSetup below anyway
-    bsr         LevelIntroSetup         ; hide player sprites, set ActionStatus = ACTION_INTRO
-    ; CopyStaticToBuffers - SKIPPED: ScreenStatic is black; nothing to push to Screen1
-    bsr         WipeReverseBuffer       ; reverse WipeTileX/Y to give the opposite order
-    clr.w       WipeTilesDone(a5)       ; reset tile counter for the reveal pass
-    move.w      #GAME_REVEAL,GameStatus(a5) ; hand off to LevelRevealRun next frame
+.hold_done
+    ; Hold complete - build next level and set up the reveal
+    bsr         LevelRevealSetup        ; sets LEVEL_REVEAL and primes WipeTileX/Y
+    rts
+
+    ; -----------------------------------------------------------------------
+    ; LEVEL_REVEAL phase: copy WIPE_SPEED tiles from ScreenSave to ScreenStatic
+    ; -----------------------------------------------------------------------
+.reveal_phase
+    move.w      WipeTilesDone(a5),d7
+    cmp.w       #WALL_PAPER_SIZE,d7
+    bge         .reveal_done
+
+    moveq       #WIPE_SPEED-1,d6
+.reveal_loop
+    cmp.w       #WALL_PAPER_SIZE,d7
+    bge         .reveal_blit_done
+
+    clr.l       d0
+    lea         WipeTileX(a5),a0
+    move.b      (a0,d7.w),d0            ; d0 = tile X (0..13)
+    clr.l       d1
+    lea         WipeTileY(a5),a0
+    move.b      (a0,d7.w),d1            ; d1 = tile Y (0..8)
+
+    bsr         ClearStaticBlock        ; copy tile from ScreenSave -> ScreenStatic
+
+    addq.w      #1,d7
+    dbra        d6,.reveal_loop
+
+.reveal_blit_done
+    move.w      d7,WipeTilesDone(a5)
+    rts
+
+.reveal_done
+    ; All tiles revealed - restore actor tiles and resume gameplay
+    bsr         DrawStaticActors        ; blit actor tiles onto ScreenStatic
+    move.w      #LEVEL_RUN,GameStatus(a5)       ; return to GameRun (state 2)
     rts
 
 
@@ -2354,60 +2391,40 @@ WipeOppositeTable:
     even                        ; ensure word-aligned for following code
 
 
-
 ;==============================================================================
-; LevelRevealRun  -  Per-frame reveal handler (GameStatus = GAME_REVEAL)
+; LevelRevealSetup  -  Build the new level and arm the reveal pass
 ;
-; Called every VBlank from GameStatusRun while GameStatus = 4 (GAME_REVEAL).
-; Mirrors LevelWipeRun phase 1 but restores tiles from ScreenSave to ScreenStatic
-; rather than zeroing them, producing the reverse wipe effect.
+; Called from LevelTransitionRun when the LEVEL_HOLD countdown reaches zero.
 ;
-; WipeTileX/Y have already been reversed by LevelWipeRun phase 3, so the
-; traversal order is the directional opposite of the wipe pattern.
+; Builds the new level's background into ScreenSave only (CopySaveToStatic,
+; DrawStaticActors, and CopyStaticToBuffers are skipped so ScreenStatic stays
+; black from the completed wipe).  Then reverses WipeTileX/Y to give the
+; directional opposite traversal order for the reveal, resets WipeTilesDone,
+; and advances GameStatus to LEVEL_REVEAL.
 ;
-; Phase 1 (WipeTilesDone < WALL_PAPER_SIZE):
-;   Copies WIPE_SPEED tiles per frame from ScreenSave to ScreenStatic using
-;   ClearStaticBlock (same masking as background restore during gameplay).
-;
-; Phase 2 (WipeTilesDone >= WALL_PAPER_SIZE):
-;   Reveal complete.  Calls DrawStaticActors to re-paint all actor tiles
-;   (ScreenSave holds background only), then advances to GameRun (state 2).
-;   ActionStatus is still ACTION_INTRO from DrawMap, so the intro star
-;   animation plays naturally on the first GameRun frame.
+; On entry: a5 = Variables base, a6 = CUSTOM.
 ;==============================================================================
 
-LevelRevealRun:
-    move.w      WipeTilesDone(a5),d7
-    cmp.w       #WALL_PAPER_SIZE,d7
-    bge         .reveal_done
+LevelRevealSetup:
+    PUSHALL
 
-    ; --- Reveal WIPE_SPEED tiles this frame ---
-    moveq       #WIPE_SPEED-1,d6
-.reveal_loop
-    cmp.w       #WALL_PAPER_SIZE,d7
-    bge         .reveal_blit_done
+    clr.w       PlayerCount(a5)         ; reset player count before re-init
+    clr.w       LevelComplete(a5)       ; clear level completion flag
+    clr.w       ActionStatus(a5)        ; reset action state to IDLE
+    bsr         LevelInit               ; init maps, load assets, create actors
+    bsr         DrawWalls               ; render wall tiles into ScreenSave
+    bsr         DrawButtons             ; render UI strip into ScreenSave
+    bsr         DrawLadders             ; overlay ladder tiles into ScreenSave
+    bsr         DrawShadows             ; overlay shadow tiles into ScreenSave
+    ; CopySaveToStatic   - SKIPPED: ScreenStatic stays black from the completed wipe
+    ; DrawStaticActors   - SKIPPED: LevelTransitionRun.reveal_done calls it after reveal
+    ; DrawInitialPlayers - SKIPPED: sprites hidden by LevelIntroSetup below anyway
+    bsr         LevelIntroSetup         ; hide player sprites, set ActionStatus=ACTION_INTRO
+    ; CopyStaticToBuffers - SKIPPED: ScreenStatic is black; nothing to push to Screen1
 
-    ; Get tile X from WipeTileX[d7]
-    clr.l       d0
-    lea         WipeTileX(a5),a0
-    move.b      (a0,d7.w),d0            ; d0 = tile X (0..13)
+    bsr         WipeReverseBuffer       ; reverse WipeTileX/Y for directional opposite order
+    clr.w       WipeTilesDone(a5)       ; reset tile counter for the reveal pass
+    move.w      #LEVEL_REVEAL,GameStatus(a5)
 
-    ; Get tile Y from WipeTileY[d7]
-    clr.l       d1
-    lea         WipeTileY(a5),a0
-    move.b      (a0,d7.w),d1            ; d1 = tile Y (0..8)
-
-    bsr         ClearStaticBlock        ; copy tile from ScreenSave -> ScreenStatic
-
-    addq.w      #1,d7
-    dbra        d6,.reveal_loop
-
-.reveal_blit_done
-    move.w      d7,WipeTilesDone(a5)
-    rts
-
-.reveal_done
-    ; All tiles revealed - restore actor tiles and resume gameplay
-    bsr         DrawStaticActors        ; blit actor tiles back onto ScreenStatic
-    move.w      #2,GameStatus(a5)       ; return to GAME_RUN (state 2)
+    POPALL
     rts

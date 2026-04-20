@@ -79,7 +79,7 @@ TitleSetup:
     move.l      #-1,ScreenMemEnd       ; mark screen memory as initialised
     move.w      #BASE_DMA,DMACON(a6)   ; enable Copper + Blitter + Bitplane + Sprite DMA
 
-    addq.w      #1,GameStatus(a5)      ; advance to state 1 (TitleRun)
+    addq.w      #GAME_TITLE,GameStatus(a5)      ; advance to state 1 (TitleRun)
 
     ; Initialise four star X/Y positions in TitleStars[] array.
     ; Each star entry is two words: { X word, Y word }.
@@ -341,7 +341,7 @@ TitleRun:
 
     clr.b       KEY_F3(a0)             ; consume the keypress (prevent repeat)
     bsr         GameTestInit           ; set up game copper, sprites, DMA, draw first level
-    move.w      #2,GameStatus(a5)      ; advance to state 2 (GameRun)
+    move.w      #LEVEL_RUN,GameStatus(a5)      ; advance to state 2 (GameRun)
     rts                                ; return immediately - stars not needed this frame
 
 .nostart

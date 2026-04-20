@@ -123,7 +123,7 @@ LevelTest:
     tst.w      LevelComplete(a5)
     beq        .nope
     addq.w     #1,LevelId(a5)
-    bsr        LevelWipeSetup       ; pick effect, fill order, switch to GAME_WIPE
+    bsr        LevelWipeSetup       ; pick effect, fill order, switch to LEVEL_WIPE
     rts                            ; return; GameStatusRun dispatches LevelWipeRun next frame
 
 .nope
@@ -212,7 +212,7 @@ DrawPlayer:
 
 Init:
 
-    move.w     #0,GameStatus(a5)
+    move.w     #GAME_INIT,GameStatus(a5)
     bsr        KeyboardInit
 
  ;   bsr        GameCopperInit

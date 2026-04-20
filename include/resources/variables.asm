@@ -86,7 +86,7 @@ Molly:                rs.b    Player_Sizeof   ; Molly's  player structure
 ;------------------------------------------------------------------------------
 ; Game state machine
 ;------------------------------------------------------------------------------
-GameStatus:           rs.w    1   ; 0=TitleSetup, 1=TitleRun, 2=GameRun, 3=WipeRun, 4=RevealRun
+GameStatus:           rs.w    1   ; 0=TitleSetup, 1=TitleRun, 2=GameRun, 3=LevelWipe, 4=LevelHold, 5=LevelReveal
 
 ;------------------------------------------------------------------------------
 ; Display buffers
@@ -233,7 +233,7 @@ CloudActorsCount:     rs.w    1           ; number of actors ever added (reset a
 ; WipeTilesDone  - tiles blitted black so far; incremented by WIPE_SPEED each frame
 ; WipeHoldTick   - hold countdown after all tiles done; DrawMap fires when 0
 ; WipeTileX/Y    - WALL_PAPER_SIZE-byte arrays of tile coords in wipe order
-;                  filled by LevelWipeSetup before GameStatus becomes GAME_WIPE
+;                  filled by LevelWipeSetup before GameStatus becomes LEVEL_WIPE
 ;------------------------------------------------------------------------------
 WipePattern:          rs.w    1
 WipeTilesDone:        rs.w    1

@@ -304,7 +304,7 @@ SPRITE_SIZE         = 4+(TILE_HEIGHT*4)+4       ; 104 bytes per sprite structure
 ;------------------------------------------------------------------------------
 ; Default starting level (0-based index into levels.bin).
 ;------------------------------------------------------------------------------
-START_LEVEL         = 18
+START_LEVEL         = 0
 
 
 ;------------------------------------------------------------------------------
@@ -515,8 +515,9 @@ CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 63
 ; WipeOppositeTable (in mapstuff.asm) maps each pattern index to its
 ; directional inverse so a future reveal animation can use the matching effect.
 ;
-; GAME_WIPE         - GameStatus value while the wipe is running (state 3)
-; GAME_REVEAL       - GameStatus value while the tile-by-tile reveal plays (state 4)
+; LEVEL_WIPE        - GameStatus value while the wipe is running (state 3)
+; LEVEL_HOLD        - GameStatus value while the all-black hold is active (state 4)
+; LEVEL_REVEAL      - GameStatus value while the tile-by-tile reveal plays (state 5)
 ; NUM_WIPE_PATTERNS - distinct wipe effects; MUST be a power of 2
 ; WIPE_SPEED        - tiles blitted black per VBlank
 ;                     126 tiles / 2 = 63 frames ≈ 1.26 s at 50 Hz PAL
@@ -534,8 +535,12 @@ CLOUD_TOTAL_TICKS   = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 63
 ;   WIPE_CENTER_OUT  (6) - from centre tile outward (Chebyshev distance)
 ;   WIPE_CENTER_IN   (7) - from edges inward to centre
 ;------------------------------------------------------------------------------
-GAME_WIPE           = 3
-GAME_REVEAL         = 4     ; GameStatus: reverse-wipe reveal of the new level
+GAME_INIT           = 0     ; GameStatus: initialze status when Game loads
+GAME_TITLE          = 1     ; GameStatus: display title screen
+LEVEL_RUN           = 2     ; GameStatus: level is setup, and ready/playing
+LEVEL_WIPE          = 3     ; GameStatus: wipe in progress (tiles blitted black)
+LEVEL_HOLD          = 4     ; GameStatus: hold all-black while next level loads
+LEVEL_REVEAL        = 5     ; GameStatus: reverse-wipe reveal of the new level
 
 NUM_WIPE_PATTERNS   = 8     ; must be a power of 2 (AND mask used for selection)
 WIPE_SPEED          = 2     ; tiles blitted per VBlank (63 frames ≈ 1.26s PAL)
