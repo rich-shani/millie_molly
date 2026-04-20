@@ -83,6 +83,7 @@ DrawMap:
     bsr           CopySaveToStatic       ; copy clean background to ScreenStatic
     bsr           DrawStaticActors       ; blit actor tiles on top of ScreenStatic
     bsr           DrawInitialPlayers     ; draw both players at level start
+    bsr           LevelIntroSetup        ; initialise intro star animation; hides player sprites
     bsr           CopyStaticToBuffers    ; copy to display buffers
 
 .notboth
@@ -254,6 +255,7 @@ LevelInit:
 
     bsr           WallPaperLoadBase      ; load border frame + clear ladder/shadow arrays
     bsr           WallPaperLoadLevel     ; copy level data into GameMap + WallpaperWork
+    bsr           LevelInitPlayers       ; scan GameMap for player starts; set Player_X/Y
     bsr           WallPaperWalls         ; convert BLOCK_SOLID to wall tile graphics
     bsr           WallpaperMakeLadders   ; build ladder tile overlay
     bsr           WallpaperMakeShadows   ; build shadow flag overlay
@@ -384,6 +386,64 @@ WallPaperLoadLevel:
     dbra          d7,.line2
 
     lea           GameMap(a5),a0         ; return a0 pointing at GameMap (for callers)
+    rts
+
+
+;==============================================================================
+; LevelInitPlayers  -  Scan GameMap for player start markers; set Player_X/Y
+;
+; Called from LevelInit immediately after WallPaperLoadLevel so that both
+; player structures have correct tile coordinates before LevelIntroSetup reads
+; them (and before InitGameObjects creates actor slots).
+;
+; Scans the full WALL_PAPER_WIDTH x WALL_PAPER_HEIGHT grid.  When it finds
+; BLOCK_MILLIESTART (7) or BLOCK_MOLLYSTART (8) it writes the tile column and
+; row into the respective player structure's Player_X / Player_Y fields.
+;
+; Preserves all registers (PUSHALL / POPALL).
+;==============================================================================
+
+LevelInitPlayers:
+    PUSHALL
+
+    lea         GameMap(a5),a0          ; a0 -> start of live game map (14x9 bytes)
+    moveq       #0,d2                   ; d2 = current row (0..WALL_PAPER_HEIGHT-1)
+
+.row_loop
+    moveq       #0,d1                   ; d1 = current column (0..WALL_PAPER_WIDTH-1)
+
+.col_loop
+    moveq       #0,d0
+    move.b      (a0)+,d0                ; d0 = block type at (d1, d2)
+
+    cmp.b       #BLOCK_MILLIESTART,d0
+    bne         .check_molly
+
+    ; Found Millie start — write tile coords to Millie struct
+    lea         Millie(a5),a1
+    move.w      d1,Player_X(a1)
+    move.w      d2,Player_Y(a1)
+    bra         .next_col
+
+.check_molly
+    cmp.b       #BLOCK_MOLLYSTART,d0
+    bne         .next_col
+
+    ; Found Molly start — write tile coords to Molly struct
+    lea         Molly(a5),a1
+    move.w      d1,Player_X(a1)
+    move.w      d2,Player_Y(a1)
+
+.next_col
+    addq.w      #1,d1
+    cmp.w       #WALL_PAPER_WIDTH,d1
+    blt         .col_loop
+
+    addq.w      #1,d2
+    cmp.w       #WALL_PAPER_HEIGHT,d2
+    blt         .row_loop
+
+    POPALL
     rts
 
 
@@ -1658,6 +1718,100 @@ DrawInitialPlayers:
     bsr         ShowSprite                 ; draw active player via hardware sprites
 
 .init_done
+    rts
+
+
+;==============================================================================
+; LevelIntroSetup  -  Initialise the level-start star animation
+;
+; Called from DrawMap immediately after DrawInitialPlayers.  Sets up the intro
+; star state so ActionIntro can run each VBlank:
+;
+;   - Reads Molly's start tile from the Molly player struct (Player_X/Y).
+;   - Determines the opposite corner:
+;       Molly left  (X < 7)  → star starts from right edge (X = 13)
+;       Molly right (X >= 7) → star starts from left  edge (X =  0)
+;       Molly top   (Y < 5)  → star starts from bottom    (Y =  8)
+;       Molly bottom(Y >= 5) → star starts from top       (Y =  0)
+;   - Clears the trail particle pool (all Life = 0).
+;   - Hides the hardware player sprites (SpritePtrs → NullSprite, copper patched).
+;   - Draws the initial large star at the starting corner.
+;   - Sets ActionStatus = ACTION_INTRO.
+;
+; On entry:  a5, a6 as usual.
+;==============================================================================
+
+LevelIntroSetup:
+    PUSHALL
+
+    ; --- Get Molly's tile position ---
+    lea         Molly(a5),a4
+    move.w      Player_X(a4),d0         ; d0 = Molly tile X
+    move.w      Player_Y(a4),d1         ; d1 = Molly tile Y
+
+    move.w      d0,IntroTargX(a5)
+    move.w      d1,IntroTargY(a5)
+
+    ; --- Compute starting corner (opposite of Molly's quadrant) ---
+    ; Start X: right edge if Molly is left (X<7), left edge if Molly is right (X>=7)
+    moveq       #0,d2                   ; default: left edge
+    cmp.w       #7,d0
+    bge         .startx_done            ; Molly on right half → start at left (0)
+    move.w      #WALL_PAPER_WIDTH-1,d2  ; Molly on left  half → start at right (13)
+.startx_done
+    move.w      d2,IntroStarX(a5)
+
+    ; Start Y: bottom if Molly is top (Y<5), top if Molly is bottom (Y>=5)
+    moveq       #0,d3                   ; default: top edge
+    cmp.w       #5,d1
+    bge         .starty_done            ; Molly on bottom half → start at top (0)
+    move.w      #WALL_PAPER_HEIGHT-1,d3 ; Molly on top    half → start at bottom (8)
+.starty_done
+    move.w      d3,IntroStarY(a5)
+
+    ; --- Initialise timing / state ---
+    move.w      #INTRO_STEP_TICKS,IntroTick(a5)  ; countdown; first step fires after this many frames
+    clr.w       IntroDone(a5)
+    clr.w       IntroWriteIdx(a5)
+
+    ; --- Clear trail particle pool ---
+    lea         IntroTrailLife(a5),a0
+    moveq       #INTRO_TRAIL_MAX-1,d7
+.clear_trail
+    clr.w       (a0)+
+    dbra        d7,.clear_trail
+
+    ; --- Hide hardware player sprites: point all four SpritePtrs to NullSprite ---
+    move.l      #NullSprite,d4          ; d4 = NullSprite address (preserved across loop)
+    move.l      d4,SpritePtrs(a5)
+    move.l      d4,SpritePtrs+4(a5)
+    move.l      d4,SpritePtrs+8(a5)
+    move.l      d4,SpritePtrs+12(a5)
+
+    ; Patch the copper list sprite entries to NullSprite
+    lea         cpSprites,a0
+    lea         SpritePtrs(a5),a1
+    moveq       #4-1,d7
+.patch_copper
+    move.l      (a1)+,d0
+    move.w      d0,6(a0)                ; SPRxPTL
+    swap        d0
+    move.w      d0,2(a0)                ; SPRxPTH
+    add.l       #8,a0                   ; next copper sprite entry (8 bytes per entry pair)
+    dbra        d7,.patch_copper
+
+    ; --- Draw initial large star at starting corner ---
+    move.w      IntroStarX(a5),d0
+    mulu        #24,d0                  ; pixel X
+    move.w      IntroStarY(a5),d1
+    mulu        #24,d1                  ; pixel Y
+    move.w      #SPRITE_STAR_LARGE,d2
+    bsr         DrawSprite
+
+    ; --- Enter intro action state ---
+    move.w      #ACTION_INTRO,ActionStatus(a5)
+
+    POPALL
     rts
 
 

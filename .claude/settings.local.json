@@ -3,7 +3,11 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(python3 tools/inspect_levels.py 26)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Read(//c/Users/shani/AppData/Local/**)",
+      "Read(//c/Users/shani/.local/**)",
+      "Bash(find /c /d -name vasmm68k_mot*)"
     ]
   }
 }

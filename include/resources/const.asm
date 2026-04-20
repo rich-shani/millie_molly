@@ -444,3 +444,28 @@ ACTION_IDLE         = 0
 ACTION_MOVE         = 1
 ACTION_FALL         = 2
 ACTION_PLAYERPUSH   = 3
+ACTION_INTRO        = 4     ; level intro star animation
+
+
+;------------------------------------------------------------------------------
+; Level intro star animation
+;
+; At the start of each level a large blue star (SPRITE_STAR_LARGE) travels from
+; the corner of the screen diagonally opposite to Molly's start position toward
+; that start position, leaving a trail of small white stars (SPRITE_STAR_SMALL)
+; that fade out after INTRO_TRAIL_LIFE VBlanks.
+;
+; Movement is tile-by-tile: one tile step every INTRO_STEP_TICKS VBlanks.
+; Trail pool (INTRO_TRAIL_MAX slots) is large enough to hold all concurrent
+; particles: INTRO_TRAIL_LIFE / INTRO_STEP_TICKS = 40 / 4 = 10 active at once.
+;
+; Sprite sheet (sprites.bin, 12×12 grid, index = row*12 + col):
+;   SPRITE_STAR_LARGE  row 11, col 11  = 11*12 + 11 = 143
+;   SPRITE_STAR_SMALL  row 11, col  9  = 11*12 +  9 = 141
+;------------------------------------------------------------------------------
+SPRITE_STAR_LARGE   = 143   ; large blue star       (row 11, col 11)
+SPRITE_STAR_SMALL   = 141   ; small white star      (row 11, col  9)
+INTRO_STEP_TICKS    = 6     ; VBlanks per one-tile step
+INTRO_TRAIL_LIFE    = 40    ; VBlanks each trail particle remains visible
+INTRO_TRAIL_MAX     = 16    ; trail pool size (>= INTRO_TRAIL_LIFE/INTRO_STEP_TICKS = 10 active steps)
+INTRO_HOLD_TICKS    = 60    ; VBlanks the large star holds at the target before the intro ends (~1.2s PAL)

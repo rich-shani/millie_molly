@@ -56,6 +56,7 @@
 ;   1 = ACTION_MOVE        -> ActionMove
 ;   2 = ACTION_FALL        -> ActionFall
 ;   3 = ACTION_PLAYERPUSH  -> ActionPlayerPush
+;   4 = ACTION_INTRO       -> ActionIntro
 ;
 ; Only one action runs at a time.  Each action handler is responsible for
 ; resetting ActionStatus to ACTION_IDLE when it completes.
@@ -70,6 +71,7 @@ PlayerLogic:
     dc.w        ActionMove-.i           ; state 1: moving
     dc.w        ActionFall-.i           ; state 2: falling
     dc.w        ActionPlayerPush-.i     ; state 3: push animation
+    dc.w        ActionIntro-.i          ; state 4: level intro star animation
 
 
 ;==============================================================================
@@ -395,6 +397,274 @@ ActionPlayerFall:
     bsr         ShowSprite
 
 .exit
+    rts
+
+
+;==============================================================================
+; ActionIntro  -  Level-start star animation (ACTION_INTRO state)
+;
+; Called every VBlank while ActionStatus = ACTION_INTRO.
+;
+; A large blue star steps one tile per INTRO_STEP_TICKS frames on a straight
+; diagonal path from a corner toward Molly's start tile.  Each step:
+;   - Stores one trail pool entry (tile X/Y) for background restoration.
+;   - Blits 2-4 small white star sprites at random pixel offsets within the
+;     tile area.  Offset range: ±8 pixels in both X and Y from the tile origin.
+;     DrawSprite restores d0-d2 via POPM so consecutive calls reuse the same
+;     pixel base; only the offsets differ.
+;
+; Trail particle life is INTRO_TRAIL_LIFE frames; ClearStaticBlock at the tile
+; position restores the background when the particle expires.
+;
+; Registers in the step section:
+;   d3 = base pixel X (StarX*24), saved across DrawSprite calls
+;   d4 = base pixel Y (StarY*24), saved across DrawSprite calls
+;   d5 = random word from RANDOMWORD
+;==============================================================================
+
+ActionIntro:
+    ; --- 1. Age trail particles (runs every frame: during travel and hold) ---
+    ;
+    ; For each live slot: clear tile, decrement life, redraw if still alive.
+    ; Small stars fade out on their natural schedule regardless of hold state.
+    ; d6 = byte offset (index*2); d3 = tileX; d4 = tileY; d5 = life; d7 = counter
+    ; ClearStaticBlock uses PUSHALL/POPALL (all regs preserved).
+    ; DrawSprite clobbers a0-a2 only (d0-d7, a3-a6 preserved via PUSHM/POPM).
+
+    moveq       #INTRO_TRAIL_MAX-1,d7
+.age_loop
+    move.w      d7,d6
+    lsl.w       #1,d6                   ; d6 = byte offset
+
+    lea         IntroTrailLife(a5),a0
+    lea         IntroTrailX(a5),a1
+    lea         IntroTrailY(a5),a2
+
+    move.w      (a0,d6.w),d5            ; d5 = life
+    beq         .age_next               ; dead: skip
+
+    move.w      (a1,d6.w),d3            ; d3 = tileX
+    move.w      (a2,d6.w),d4            ; d4 = tileY
+
+    move.w      d3,d0
+    move.w      d4,d1
+    bsr         ClearStaticBlock        ; restore tile from ScreenSave
+
+    subq.w      #1,d5                   ; decrement life
+    move.w      d5,(a0,d6.w)
+    beq         .age_next               ; just expired: no redraw
+
+    ; Redraw at tile-aligned pixel coords
+    move.w      d3,d0
+    mulu        #24,d0                  ; d0 = pixel X
+    move.w      d4,d1
+    mulu        #24,d1                  ; d1 = pixel Y
+    move.w      #SPRITE_STAR_SMALL,d2
+    bsr         DrawSprite              ; clobbers a0-a2; preserves d0-d7, a3-a6
+
+.age_next
+    dbra        d7,.age_loop
+
+    ; --- 2. Hold or travel? ---
+    move.w      IntroDone(a5),d0
+    bne         .holding
+
+    ; --- TRAVELLING: check step time ---
+    subq.w      #1,IntroTick(a5)
+    bne         .no_step
+
+    ; --- STEP ---
+    move.w      #INTRO_STEP_TICKS,IntroTick(a5)
+
+    ; a. Erase large star from current tile
+    move.w      IntroStarX(a5),d0
+    move.w      IntroStarY(a5),d1
+    bsr         ClearStaticBlock
+
+    ; b. Write one trail pool entry at current tile position
+    move.w      IntroWriteIdx(a5),d3    ; d3 = slot index
+    move.w      d3,d4
+    lsl.w       #1,d4                   ; d4 = byte offset
+    lea         IntroTrailX(a5),a0
+    lea         IntroTrailY(a5),a1
+    lea         IntroTrailLife(a5),a2
+    move.w      IntroStarX(a5),d0
+    move.w      d0,(a0,d4.w)            ; TrailX[d3] = StarX
+    move.w      IntroStarY(a5),d1
+    move.w      d1,(a1,d4.w)            ; TrailY[d3] = StarY
+    move.w      #INTRO_TRAIL_LIFE,(a2,d4.w)
+    ; Advance circular write index
+    addq.w      #1,d3
+    cmp.w       #INTRO_TRAIL_MAX,d3
+    blt         .idx_ok
+    moveq       #0,d3
+.idx_ok
+    move.w      d3,IntroWriteIdx(a5)
+
+    ; c. Blit 2-4 small stars at random pixel offsets within this tile
+    ;    Compute base pixel coords and save in d3/d4; DrawSprite restores d0-d2
+    ;    so we add fresh offsets each call.
+    mulu        #24,d0                  ; d0 = StarX * 24  (tile pixel X)
+    mulu        #24,d1                  ; d1 = StarY * 24  (tile pixel Y)
+    move.w      d0,d3                   ; d3 = base pixel X (preserved across DrawSprite)
+    move.w      d1,d4                   ; d4 = base pixel Y
+
+    ; Get random word; bits 0-15 supply 3 × (4-bit X offset + 4-bit Y offset)
+    RANDOMWORD                          ; d0 = random word; d1 preserved via stack
+    move.w      d0,d5                   ; d5 = random word
+
+    ; Star 1: exact tile origin
+    move.w      d3,d0
+    move.w      d4,d1
+    move.w      #SPRITE_STAR_SMALL,d2
+    bsr         DrawSprite
+
+    ; Star 2: random offset from bits 7:0  (4-bit X: -8..+7, 4-bit Y: -8..+7)
+    move.w      d5,d0
+    and.w       #$F,d0                  ; bits 3:0 → 0..15
+    subq.w      #8,d0                   ; → -8..+7
+    add.w       d3,d0                   ; pixel X with offset
+    move.w      d5,d1
+    lsr.w       #4,d1
+    and.w       #$F,d1                  ; bits 7:4 → 0..15
+    subq.w      #8,d1                   ; → -8..+7
+    add.w       d4,d1                   ; pixel Y with offset
+    move.w      #SPRITE_STAR_SMALL,d2
+    bsr         DrawSprite
+
+    ; Star 3: random offset from bits 15:8
+    move.w      d5,d0
+    lsr.w       #8,d0
+    and.w       #$F,d0
+    subq.w      #8,d0
+    add.w       d3,d0
+    move.w      d5,d1
+    lsr.w       #7,d1
+    and.w       #$F,d1
+    subq.w      #8,d1
+    add.w       d4,d1
+    move.w      #SPRITE_STAR_SMALL,d2
+    bsr         DrawSprite
+
+    ; Star 4: only if bits 5:4 of random word are non-zero (75% chance)
+    move.w      d5,d0
+    and.w       #$30,d0                 ; bits 5:4
+    beq         .skip_star4             ; 25% chance: skip
+
+    RANDOMWORD                          ; fresh random bits for this star's offset
+    move.w      d0,d5
+    move.w      d5,d0
+    and.w       #$F,d0
+    subq.w      #8,d0
+    add.w       d3,d0
+    move.w      d5,d1
+    lsr.w       #4,d1
+    and.w       #$F,d1
+    subq.w      #8,d1
+    add.w       d4,d1
+    move.w      #SPRITE_STAR_SMALL,d2
+    bsr         DrawSprite
+
+.skip_star4
+    ; d. Move star one tile toward target
+    move.w      IntroStarX(a5),d0
+    move.w      IntroTargX(a5),d1
+    cmp.w       d0,d1
+    beq         .star_x_done
+    bgt         .star_x_right
+    subq.w      #1,d0
+    bra         .star_x_done
+.star_x_right
+    addq.w      #1,d0
+.star_x_done
+    move.w      d0,IntroStarX(a5)
+
+    move.w      IntroStarY(a5),d0
+    move.w      IntroTargY(a5),d1
+    cmp.w       d0,d1
+    beq         .star_y_done
+    bgt         .star_y_down
+    subq.w      #1,d0
+    bra         .star_y_done
+.star_y_down
+    addq.w      #1,d0
+.star_y_done
+    move.w      d0,IntroStarY(a5)
+
+    ; e. Check if arrived at target
+    move.w      IntroStarX(a5),d0
+    cmp.w       IntroTargX(a5),d0
+    bne         .draw_star
+    move.w      IntroStarY(a5),d0
+    cmp.w       IntroTargY(a5),d0
+    bne         .draw_star
+
+    ; ARRIVED: start hold countdown; star stays visible until it expires
+    move.w      #INTRO_HOLD_TICKS,IntroDone(a5)
+
+.draw_star
+    ; f. Draw large star at new/current position
+    move.w      IntroStarX(a5),d0
+    mulu        #24,d0
+    move.w      IntroStarY(a5),d1
+    mulu        #24,d1
+    move.w      #SPRITE_STAR_LARGE,d2
+    bsr         DrawSprite
+
+.no_step
+    rts
+
+    ; --- HOLDING: large star stays at target; small trail stars age out normally ---
+.holding
+    ; Redraw large star each frame (trail aging above may have cleared its tile)
+    move.w      IntroStarX(a5),d0
+    mulu        #24,d0
+    move.w      IntroStarY(a5),d1
+    mulu        #24,d1
+    move.w      #SPRITE_STAR_LARGE,d2
+    bsr         DrawSprite
+
+    subq.w      #1,IntroDone(a5)
+    bne         .no_step                ; still holding: done for this frame
+
+    ; Hold expired: erase large star, repair actors, show player, go IDLE
+    move.w      IntroStarX(a5),d0
+    move.w      IntroStarY(a5),d1
+    bsr         ClearStaticBlock        ; erase large star from ScreenStatic
+    bsr         IntroClearAllTrail      ; clear any surviving trail particles
+    bsr         DrawStaticActors        ; repair any actor tiles the intro covered
+    move.l      PlayerPtrs(a5),a4
+    moveq       #0,d0
+    bsr         ShowSprite
+    move.w      #ACTION_IDLE,ActionStatus(a5)
+    rts
+
+
+;==============================================================================
+; IntroClearAllTrail  -  ClearStaticBlock all active trail particles
+;
+; Called at intro completion to erase every still-visible trail star from
+; ScreenStatic and mark each particle dead (Life = 0).
+;==============================================================================
+
+IntroClearAllTrail:
+    lea         IntroTrailLife(a5),a0
+    lea         IntroTrailX(a5),a1
+    lea         IntroTrailY(a5),a2
+    moveq       #INTRO_TRAIL_MAX-1,d7
+
+.loop
+    move.w      d7,d6
+    lsl.w       #1,d6                   ; d6 = byte offset
+    move.w      (a0,d6.w),d0            ; life
+    beq         .next                   ; already dead
+    move.w      (a1,d6.w),d0            ; tile X
+    move.w      (a2,d6.w),d1            ; tile Y
+    bsr         ClearStaticBlock        ; PUSHALL/POPALL: preserves all registers
+    clr.w       (a0,d6.w)               ; mark dead
+
+.next
+    dbra        d7,.loop
     rts
 
 

@@ -191,4 +191,26 @@ ClearMasks:           rs.l    TILE_WIDTH  ; 24 longs (only 16 used; TILE_WIDTH =
 ActorSlotPtr:         rs.l    1           ; current write pointer into ActorList
 ActorList:            rs.l    MAP_SIZE    ; sorted actor pointer array (88 entries max)
 
+;------------------------------------------------------------------------------
+; Level intro star animation state
+;
+; IntroStarX/Y   - current tile position of the large travelling star
+; IntroTargX/Y   - destination tile (Molly's start position)
+; IntroTick      - countdown to next step (INTRO_STEP_TICKS..1; step at 0)
+; IntroDone      - 0 = travelling, INTRO_HOLD_TICKS..1 = holding at target, triggers end at 1
+; IntroWriteIdx  - next slot index to write in the circular trail pool
+; IntroTrailX/Y  - tile position of each trail particle (INTRO_TRAIL_MAX slots)
+; IntroTrailLife - remaining life of each trail particle (0 = inactive)
+;------------------------------------------------------------------------------
+IntroStarX:           rs.w    1
+IntroStarY:           rs.w    1
+IntroTargX:           rs.w    1
+IntroTargY:           rs.w    1
+IntroTick:            rs.w    1
+IntroDone:            rs.w    1
+IntroWriteIdx:        rs.w    1
+IntroTrailX:          rs.w    INTRO_TRAIL_MAX
+IntroTrailY:          rs.w    INTRO_TRAIL_MAX
+IntroTrailLife:       rs.w    INTRO_TRAIL_MAX
+
 Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes
