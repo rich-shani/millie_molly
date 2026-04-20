@@ -1,1 +1,15 @@
 . fall animation ( straight in to fall! )
+
+. remove the star burst - as its not good, and gets complicated as it spans multiple tiles (for blit cleanup)
+
+. fix the PlayerX/Y bug where the location isn't set when we start the STAR intro (so, it always goes to 0,0)
+
+. add animation for the DIRT when we kill that tile
+
+. add a PLAY GAME option on the title screen (instead of F3)
+
+. test joystick support
+
+. add PRO PACK and test as an ADF
+
+. use TTE to add an cracktro intro
