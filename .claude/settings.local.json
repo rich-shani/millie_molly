@@ -9,7 +9,8 @@
       "Read(//c/Users/shani/.local/**)",
       "Bash(find /c /d -name vasmm68k_mot*)",
       "Bash(python3 *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(git *)"
     ]
   }
 }

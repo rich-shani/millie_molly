@@ -56,7 +56,8 @@
 ;   1 = ACTION_MOVE        -> ActionMove
 ;   2 = ACTION_FALL        -> ActionFall
 ;   3 = ACTION_PLAYERPUSH  -> ActionPlayerPush
-;   4 = ACTION_INTRO       -> ActionIntro
+;   4 = ACTION_INTRO       -> ActionIntro  (level intro star animation)
+;   5 = ACTION_SWITCH      -> ActionIntro  (player switch star animation; same body)
 ;
 ; Only one action runs at a time.  Each action handler is responsible for
 ; resetting ActionStatus to ACTION_IDLE when it completes.
@@ -72,6 +73,7 @@ PlayerLogic:
     dc.w        ActionFall-.i           ; state 2: falling
     dc.w        ActionPlayerPush-.i     ; state 3: push animation
     dc.w        ActionIntro-.i          ; state 4: level intro star animation
+    dc.w        ActionIntro-.i          ; state 5: player switch star animation (same body)
 
 
 ;==============================================================================
@@ -410,12 +412,16 @@ ActionPlayerFall:
 
 
 ;==============================================================================
-; ActionIntro  -  Level-start star animation (ACTION_INTRO state)
+; ActionIntro  -  Star animation handler (ACTION_INTRO and ACTION_SWITCH states)
 ;
-; Called every VBlank while ActionStatus = ACTION_INTRO.
+; Called every VBlank while ActionStatus = ACTION_INTRO or ACTION_SWITCH.
+; StarAnimContext selects which completion behaviour fires when the hold expires:
+;   0 (ACTION_INTRO)  - level start: show the player sprite, enter ACTION_IDLE.
+;   1 (ACTION_SWITCH) - player swap: swap PlayerPtrs, clear the frozen graphic,
+;                       show the new active player sprite, enter ACTION_IDLE.
 ;
 ; A large blue star steps one tile per INTRO_STEP_TICKS frames on a straight
-; diagonal path from a corner toward Molly's start tile.  Each step:
+; diagonal path from StarOriginX/Y toward StarTargetX/Y.  Each step:
 ;   - Stores one trail pool entry (tile X/Y) for background restoration.
 ;   - Blits 2-4 small white star sprites at random pixel offsets within the
 ;     tile area.  Offset range: ±8 pixels in both X and Y from the tile origin.
@@ -426,8 +432,8 @@ ActionPlayerFall:
 ; position restores the background when the particle expires.
 ;
 ; Registers in the step section:
-;   d3 = base pixel X (StarX*24), saved across DrawSprite calls
-;   d4 = base pixel Y (StarY*24), saved across DrawSprite calls
+;   d3 = base pixel X (StarOriginX*24), saved across DrawSprite calls
+;   d4 = base pixel Y (StarOriginY*24), saved across DrawSprite calls
 ;   d5 = random word from RANDOMWORD
 ;==============================================================================
 
@@ -458,6 +464,7 @@ ActionIntro:
     move.w      d3,d0
     move.w      d4,d1
     bsr         RestoreBackgroundTile        ; restore tile from NonDisplayScreen
+    bsr         RedrawActorAtTile            ; redraw any actor at this tile (d0/d1 preserved)
 
     subq.w      #1,d5                   ; decrement life
     move.w      d5,(a0,d6.w)
@@ -486,9 +493,10 @@ ActionIntro:
     move.w      #INTRO_STEP_TICKS,IntroTick(a5)
 
     ; a. Erase large star from current tile
-    move.w      IntroStarX(a5),d0
-    move.w      IntroStarY(a5),d1
+    move.w      StarOriginX(a5),d0
+    move.w      StarOriginY(a5),d1
     bsr         RestoreBackgroundTile
+    bsr         RedrawActorAtTile            ; redraw any actor at this tile (d0/d1 preserved)
 
     ; b. Write one trail pool entry at current tile position
     move.w      IntroWriteIdx(a5),d3    ; d3 = slot index
@@ -497,9 +505,9 @@ ActionIntro:
     lea         IntroTrailX(a5),a0
     lea         IntroTrailY(a5),a1
     lea         IntroTrailLife(a5),a2
-    move.w      IntroStarX(a5),d0
+    move.w      StarOriginX(a5),d0
     move.w      d0,(a0,d4.w)            ; TrailX[d3] = StarX
-    move.w      IntroStarY(a5),d1
+    move.w      StarOriginY(a5),d1
     move.w      d1,(a1,d4.w)            ; TrailY[d3] = StarY
     move.w      #INTRO_TRAIL_LIFE,(a2,d4.w)
     ; Advance circular write index
@@ -576,8 +584,8 @@ ActionIntro:
 
 .skip_star4
     ; d. Move star one tile toward target
-    move.w      IntroStarX(a5),d0
-    move.w      IntroTargX(a5),d1
+    move.w      StarOriginX(a5),d0
+    move.w      StarTargetX(a5),d1
     cmp.w       d0,d1
     beq         .star_x_done
     bgt         .star_x_right
@@ -586,10 +594,10 @@ ActionIntro:
 .star_x_right
     addq.w      #1,d0
 .star_x_done
-    move.w      d0,IntroStarX(a5)
+    move.w      d0,StarOriginX(a5)
 
-    move.w      IntroStarY(a5),d0
-    move.w      IntroTargY(a5),d1
+    move.w      StarOriginY(a5),d0
+    move.w      StarTargetY(a5),d1
     cmp.w       d0,d1
     beq         .star_y_done
     bgt         .star_y_down
@@ -598,24 +606,29 @@ ActionIntro:
 .star_y_down
     addq.w      #1,d0
 .star_y_done
-    move.w      d0,IntroStarY(a5)
+    move.w      d0,StarOriginY(a5)
 
     ; e. Check if arrived at target
-    move.w      IntroStarX(a5),d0
-    cmp.w       IntroTargX(a5),d0
+    move.w      StarOriginX(a5),d0
+    cmp.w       StarTargetX(a5),d0
     bne         .draw_star
-    move.w      IntroStarY(a5),d0
-    cmp.w       IntroTargY(a5),d0
+    move.w      StarOriginY(a5),d0
+    cmp.w       StarTargetY(a5),d0
     bne         .draw_star
 
-    ; ARRIVED: start hold countdown; star stays visible until it expires
+    ; ARRIVED: start hold countdown; duration depends on animation context
+    tst.w       StarAnimContext(a5)
+    bne         .switch_hold
     move.w      #INTRO_HOLD_TICKS,IntroDone(a5)
+    bra         .draw_star
+.switch_hold
+    move.w      #SWITCH_HOLD_TICKS,IntroDone(a5)
 
 .draw_star
     ; f. Draw large star at new/current position
-    move.w      IntroStarX(a5),d0
+    move.w      StarOriginX(a5),d0
     mulu        #24,d0
-    move.w      IntroStarY(a5),d1
+    move.w      StarOriginY(a5),d1
     mulu        #24,d1
     move.w      #SPRITE_STAR_LARGE,d2
     bsr         DrawSprite
@@ -626,9 +639,9 @@ ActionIntro:
     ; --- HOLDING: large star stays at target; small trail stars age out normally ---
 .holding
     ; Redraw large star each frame (trail aging above may have cleared its tile)
-    move.w      IntroStarX(a5),d0
+    move.w      StarOriginX(a5),d0
     mulu        #24,d0
-    move.w      IntroStarY(a5),d1
+    move.w      StarOriginY(a5),d1
     mulu        #24,d1
     move.w      #SPRITE_STAR_LARGE,d2
     bsr         DrawSprite
@@ -636,12 +649,31 @@ ActionIntro:
     subq.w      #1,IntroDone(a5)
     bne         .no_step                ; still holding: done for this frame
 
-    ; Hold expired: erase large star and trail, then begin gameplay
-    move.w      IntroStarX(a5),d0
-    move.w      IntroStarY(a5),d1
+    ; Hold expired: erase large star and trail, then finish
+    move.w      StarOriginX(a5),d0
+    move.w      StarOriginY(a5),d1
     bsr         RestoreBackgroundTile        ; erase large star from DisplayScreen
-    bsr         IntroClearAllTrail      ; clear any surviving trail particles
-    bsr         DrawStaticActors        ; restore any actor tiles the trail cleared
+    bsr         IntroClearAllTrail           ; clear any surviving trail particles
+    bsr         DrawStaticActors             ; restore any actor tiles the trail cleared
+    tst.w       StarAnimContext(a5)
+    bne         .switch_done
+    ; Level intro: draw frozen player if one is present in this level
+    move.l      PlayerPtrs+4(a5),a4
+    tst.w       Player_Status(a4)           ; status 0 = not placed in this level
+    beq         .anim_complete
+    bsr         DrawPlayerFrozen
+    bra         .anim_complete
+.switch_done
+    ; Player switch: perform pointer swap now that star has arrived
+    move.l      PlayerPtrs+4(a5),a4         ; a4 -> previously frozen player
+    move.l      PlayerPtrs(a5),PlayerPtrs+4(a5)
+    move.l      a4,PlayerPtrs(a5)
+    move.w      #1,Player_Status(a4)        ; new active player
+    bsr         ClearPlayer                  ; erase frozen graphic from screen
+    ; Redraw the now-frozen player (trail cleanup may have erased their sprite)
+    move.l      PlayerPtrs+4(a5),a4
+    bsr         DrawPlayerFrozen
+.anim_complete
     move.l      PlayerPtrs(a5),a4
     moveq       #0,d0
     bsr         ShowSprite
@@ -676,6 +708,69 @@ IntroClearAllTrail:
     dbra        d7,.loop
     rts
 
+
+;==============================================================================
+; StarAnimBegin  -  Common initialisation for the star animation
+;
+; Called after the caller has set StarOriginX/Y, StarTargetX/Y, and
+; StarAnimContext.  Resets IntroTick, IntroDone, IntroWriteIdx, clears the
+; trail pool, and blits the large star at the origin position.
+;
+; Clobbers: none (PUSHALL/POPALL).
+;==============================================================================
+
+StarAnimBegin:
+    PUSHALL
+    move.w      #INTRO_STEP_TICKS,IntroTick(a5)
+    clr.w       IntroDone(a5)
+    clr.w       IntroWriteIdx(a5)
+    lea         IntroTrailLife(a5),a0
+    moveq       #INTRO_TRAIL_MAX-1,d7
+.clear_trail
+    clr.w       (a0)+
+    dbra        d7,.clear_trail
+    move.w      StarOriginX(a5),d0
+    mulu        #24,d0
+    move.w      StarOriginY(a5),d1
+    mulu        #24,d1
+    move.w      #SPRITE_STAR_LARGE,d2
+    bsr         DrawSprite
+    POPALL
+    rts
+
+
+;==============================================================================
+; RedrawActorAtTile  -  Redraw any live actor at the given tile position
+;
+; Called after RestoreBackgroundTile during the star animation so that actors
+; whose tiles are restored by trail cleanup or the large-star erase do not
+; disappear from the screen mid-animation.
+;
+; Entry: d0 = tile X, d1 = tile Y
+; Clobbers: none (PUSHALL/POPALL).
+;==============================================================================
+
+RedrawActorAtTile:
+    PUSHALL
+    move.w      ActorCount(a5),d7
+    beq         .exit
+    subq.w      #1,d7
+    lea         Actors(a5),a3
+.scan
+    tst.w       Actor_Status(a3)
+    beq         .next
+    cmp.w       Actor_X(a3),d0
+    bne         .next
+    cmp.w       Actor_Y(a3),d1
+    bne         .next
+    bsr         ActorDrawStatic             ; redraws actor tile onto DisplayScreen
+    bra         .exit
+.next
+    add.w       #Actor_Sizeof,a3
+    dbra        d7,.scan
+.exit
+    POPALL
+    rts
 
 
 ;==============================================================================
@@ -854,39 +949,38 @@ ActionIdle:
 
 
 ;==============================================================================
-; PlayerSwitch  -  Swap active and frozen player characters
+; PlayerSwitch  -  Begin the player-switch star animation (ACTION_SWITCH)
 ;
-; Swaps the two pointers in PlayerPtrs so the currently-frozen player becomes
-; the active one and vice versa.
-;
-; Before swapping:
-;   - DrawPlayerFrozen draws the current active player in its static/frozen pose
-;     (the graphic shown when a character is waiting and not being controlled)
-;   - Player_Status of the current active player is set to 2 (frozen)
-;
-; After swapping:
-;   - ClearPlayer erases the newly-active player's static graphic from DisplayScreen
-;   - Player_Status of the new active player is set to 1 (active)
+; Launches the blue star animation from the active player's tile toward the
+; frozen player's tile.  Both players' frozen graphics are drawn only once the
+; animation completes (in ActionIntro's StarAnimContext=1 completion path).
+; The actual pointer swap also happens there.
 ;
 ; If the other player's Status is 0 (inactive = not yet placed in the level),
 ; the switch is blocked.
 ;==============================================================================
 
 PlayerSwitch:
-    move.l      PlayerPtrs+4(a5),a0   ; a0 -> frozen player struct
-    tst.w       Player_Status(a0)     ; is the frozen player even active?
-    beq         .noswitch             ; no - only one player placed, can't switch
+    move.l      PlayerPtrs+4(a5),a0        ; a0 -> frozen player struct
+    tst.w       Player_Status(a0)          ; is the frozen player even active?
+    beq         .noswitch                  ; no - only one player placed, can't switch
 
-    bsr         DrawPlayerFrozen      ; draw current active player in frozen pose
-    move.w      #2,Player_Status(a4)  ; mark current player as frozen (status 2)
+    move.w      #2,Player_Status(a4)       ; mark current player as frozen
 
-    ; Swap the two PlayerPtrs pointers
-    move.l      PlayerPtrs+4(a5),a4  ; a4 -> previously frozen player
-    move.l      PlayerPtrs(a5),PlayerPtrs+4(a5)  ; put old active into slot 1
-    move.l      a4,PlayerPtrs(a5)    ; put old frozen into slot 0
+    ; Set origin = active player tile; target = frozen player tile
+    ; a0 still valid: nothing between the load above and here clobbers it
+    move.w      Player_X(a4),d0
+    move.w      d0,StarOriginX(a5)
+    move.w      Player_Y(a4),d1
+    move.w      d1,StarOriginY(a5)
+    move.w      Player_X(a0),d0
+    move.w      d0,StarTargetX(a5)
+    move.w      Player_Y(a0),d1
+    move.w      d1,StarTargetY(a5)
 
-    move.w      #1,Player_Status(a4) ; new active player: status = 1
-    bsr         ClearPlayer          ; erase its static frozen graphic from screen
+    move.w      #1,StarAnimContext(a5)     ; switch mode (not level intro)
+    bsr         StarAnimBegin              ; reset trail pool, draw initial star
+    move.w      #ACTION_SWITCH,ActionStatus(a5)
 
 .noswitch
     rts

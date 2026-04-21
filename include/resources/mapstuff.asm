@@ -73,6 +73,7 @@
 DrawMap:
     clr.w         PlayerCount(a5)        ; reset player count before re-init
     clr.w         LevelComplete(a5)      ; clear level completion flag
+    clr.w         LevelCompleteHold(a5)  ; reset hold countdown
     clr.w         ActionStatus(a5)       ; reset action state to IDLE
 
     bsr           LevelInit              ; init maps, load assets, create actors
@@ -1678,47 +1679,29 @@ DrawActor:
 
 
 ;==============================================================================
-; DrawInitialPlayers  -  Display both players at their starting positions
+; DrawInitialPlayers  -  Set up the active player hardware sprite at level start
 ;
-; Called from DrawMap after actors are drawn, to show both players at the
-; start of a level.
-;
-; The active player (Status=1) is shown via hardware sprites (ShowSprite).
-; The frozen player (Status=2) is shown as a static blitted sprite using
-; the same DrawPlayerFrozen function called during player switching.
+; Called from DrawMap after actors are drawn, immediately before LevelIntroSetup.
+; Only the active player (Status=1) is positioned here via ShowSprite; LevelIntroSetup
+; hides hardware sprites for the duration of the star animation.  Frozen players
+; are not drawn here - they appear only when the star animation completes.
 ;==============================================================================
 
 DrawInitialPlayers:
     ; Check Molly (PlayerPtrs+4)
     move.l      PlayerPtrs+4(a5),a4
-    tst.w       Player_Status(a4)
-    beq         .check_millie             ; skip if inactive (0)
-
     cmp.w       #1,Player_Status(a4)
-    beq         .molly_active
-    ; Molly is frozen (Status=2) - draw as static blit using DrawPlayerFrozen
-    bsr         DrawPlayerFrozen
-    bra         .check_millie
-
-.molly_active
-    moveq       #0,d0                      ; d0 = animation frame (idle)
-    bsr         ShowSprite                 ; draw active player via hardware sprites
+    bne         .check_millie
+    moveq       #0,d0
+    bsr         ShowSprite
 
 .check_millie
     ; Check Millie (PlayerPtrs+0)
     move.l      PlayerPtrs(a5),a4
-    tst.w       Player_Status(a4)
-    beq         .init_done                ; skip if inactive (0)
-
     cmp.w       #1,Player_Status(a4)
-    beq         .millie_active
-    ; Millie is frozen (Status=2) - draw as static blit using DrawPlayerFrozen
-    bsr         DrawPlayerFrozen
-    bra         .init_done
-
-.millie_active
-    moveq       #0,d0                      ; d0 = animation frame (idle)
-    bsr         ShowSprite                 ; draw active player via hardware sprites
+    bne         .init_done
+    moveq       #0,d0
+    bsr         ShowSprite
 
 .init_done
     rts
@@ -1727,8 +1710,9 @@ DrawInitialPlayers:
 ;==============================================================================
 ; LevelIntroSetup  -  Initialise the level-start star animation
 ;
-; Called from DrawMap immediately after DrawInitialPlayers.  Sets up the intro
-; star state so ActionIntro can run each VBlank:
+; Called from DrawMap immediately after DrawInitialPlayers.  Sets StarOriginX/Y
+; to the corner opposite Molly's start tile and StarTargetX/Y to Molly's tile,
+; then delegates common animation init to StarAnimBegin:
 ;
 ;   - Reads Molly's start tile from the Molly player struct (Player_X/Y).
 ;   - Determines the opposite corner:
@@ -1736,9 +1720,8 @@ DrawInitialPlayers:
 ;       Molly right (X >= 7) → star starts from left  edge (X =  0)
 ;       Molly top   (Y < 5)  → star starts from bottom    (Y =  8)
 ;       Molly bottom(Y >= 5) → star starts from top       (Y =  0)
-;   - Clears the trail particle pool (all Life = 0).
 ;   - Hides the hardware player sprites (SpritePtrs → NullSprite, copper patched).
-;   - Draws the initial large star at the starting corner.
+;   - Calls StarAnimBegin (clears trail pool, draws initial star at origin).
 ;   - Sets ActionStatus = ACTION_INTRO.
 ;
 ; On entry:  a5, a6 as usual.
@@ -1752,8 +1735,8 @@ LevelIntroSetup:
     move.w      Player_X(a4),d0         ; d0 = Molly tile X
     move.w      Player_Y(a4),d1         ; d1 = Molly tile Y
 
-    move.w      d0,IntroTargX(a5)
-    move.w      d1,IntroTargY(a5)
+    move.w      d0,StarTargetX(a5)
+    move.w      d1,StarTargetY(a5)
 
     ; --- Compute starting corner (opposite of Millie's quadrant) ---
     ; Start X: right edge if Millie is left (X<7), left edge if Millie is right (X>=7)
@@ -1762,7 +1745,7 @@ LevelIntroSetup:
     bge         .startx_done            ; Millie on right half → start at left (0)
     move.w      #WALL_PAPER_WIDTH-1,d2  ; Millie on left  half → start at right (13)
 .startx_done
-    move.w      d2,IntroStarX(a5)
+    move.w      d2,StarOriginX(a5)
 
     ; Start Y: bottom if Millie is top (Y<5), top if Molly is bottom (Y>=5)
     moveq       #0,d3                   ; default: top edge
@@ -1770,19 +1753,7 @@ LevelIntroSetup:
     bge         .starty_done            ; Millie on bottom half → start at top (0)
     move.w      #WALL_PAPER_HEIGHT-1,d3 ; Millie on top    half → start at bottom (8)
 .starty_done
-    move.w      d3,IntroStarY(a5)
-
-    ; --- Initialise timing / state ---
-    move.w      #INTRO_STEP_TICKS,IntroTick(a5)  ; countdown; first step fires after this many frames
-    clr.w       IntroDone(a5)
-    clr.w       IntroWriteIdx(a5)
-
-    ; --- Clear trail particle pool ---
-    lea         IntroTrailLife(a5),a0
-    moveq       #INTRO_TRAIL_MAX-1,d7
-.clear_trail
-    clr.w       (a0)+
-    dbra        d7,.clear_trail
+    move.w      d3,StarOriginY(a5)
 
     ; --- Hide hardware player sprites: point all four SpritePtrs to NullSprite ---
     move.l      #NullSprite,d4          ; d4 = NullSprite address (preserved across loop)
@@ -1803,13 +1774,9 @@ LevelIntroSetup:
     add.l       #8,a0                   ; next copper sprite entry (8 bytes per entry pair)
     dbra        d7,.patch_copper
 
-    ; --- Draw initial large star at starting corner ---
-    move.w      IntroStarX(a5),d0
-    mulu        #24,d0                  ; pixel X
-    move.w      IntroStarY(a5),d1
-    mulu        #24,d1                  ; pixel Y
-    move.w      #SPRITE_STAR_LARGE,d2
-    bsr         DrawSprite
+    ; --- Initialise star animation state and draw initial large star ---
+    clr.w       StarAnimContext(a5)         ; level intro mode (not player switch)
+    bsr         StarAnimBegin               ; reset trail pool, timing, draw initial star
 
     ; --- Enter intro action state ---
     move.w      #ACTION_INTRO,ActionStatus(a5)

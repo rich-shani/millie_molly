@@ -107,26 +107,37 @@ Restart:
 ;
 ; Called every frame from GameRun (gamestatus.asm).
 ;
-; If LevelComplete is non-zero (all enemies destroyed), advances to the next
-; level automatically.  Otherwise checks the F1 / F2 keys for manual level
-; navigation (debug feature):
+; If LevelComplete is non-zero (all enemies destroyed), holds the finished level
+; on screen for LEVEL_COMPLETE_HOLD_TICKS frames before advancing.
+; LevelCompleteHold is 0 on first detection; it is initialised to
+; LEVEL_COMPLETE_HOLD_TICKS and counted down each frame.  When it reaches 0
+; the level is incremented and GameStatus is set to LEVEL_INIT.
+;
+; Otherwise checks the F1 / F2 keys for manual level navigation (debug feature):
 ;   F1 = previous level (decrement LevelId, min 0)
 ;   F2 = next level     (increment LevelId, max 99)
-;
-; After any change, calls DrawMap to load and render the new level.
-;
-; Preserves all registers (all working registers saved/restored by DrawMap's
-; own PUSHALL / POPALL).
 ;==============================================================================
 
 LevelTest:
-    tst.w      LevelComplete(a5)
-    beq        .nope
+    tst.w       LevelComplete(a5)
+    beq         .nope
 
-    addq.w     #1,LevelId(a5)
-    ; change GameStatus to LEVEL_INIT so that GameRun skips PlayerLogic and ShowSprite
+    ; Level complete: hold on the finished level before starting the transition.
+    ; LevelCompleteHold = 0 means the hold has not been initialised yet.
+    move.w      LevelCompleteHold(a5),d0
+    bne         .counting
+    move.w      #LEVEL_COMPLETE_HOLD_TICKS,LevelCompleteHold(a5)
+    rts
+
+.counting
+    subq.w      #1,d0
+    move.w      d0,LevelCompleteHold(a5)
+    bne         .done
+    ; Hold expired: advance to next level
+    addq.w      #1,LevelId(a5)
     move.w      #LEVEL_INIT,GameStatus(a5)
-    rts                             ; return; GameStatusRun dispatches LevelWipeRun next frame
+.done
+    rts
 
 .nope
     lea        Keys,a0

@@ -136,6 +136,7 @@ PlayerCount:          rs.w    1   ; number of player characters initialised for 
 ; Level completion / action status
 ;------------------------------------------------------------------------------
 LevelComplete:        rs.w    1   ; set to 1 when all enemies are destroyed
+LevelCompleteHold:    rs.w    1   ; countdown to 0 before transition starts; 0 = not yet triggered
 ActionStatus:         rs.w    1   ; current action state: ACTION_IDLE/MOVE/FALL/PLAYERPUSH
 
 ;------------------------------------------------------------------------------
@@ -192,23 +193,25 @@ ActorSlotPtr:         rs.l    1           ; current write pointer into ActorList
 ActorList:            rs.l    MAP_SIZE    ; sorted actor pointer array (88 entries max)
 
 ;------------------------------------------------------------------------------
-; Level intro star animation state
+; Star animation state (shared by level intro and player-switch transition)
 ;
-; IntroStarX/Y   - current tile position of the large travelling star
-; IntroTargX/Y   - destination tile (Molly's start position)
+; StarOriginX/Y  - current tile position of the large travelling star
+; StarTargetX/Y  - destination tile (Molly's start / frozen player's tile)
 ; IntroTick      - countdown to next step (INTRO_STEP_TICKS..1; step at 0)
-; IntroDone      - 0 = travelling, INTRO_HOLD_TICKS..1 = holding at target, triggers end at 1
+; IntroDone      - 0 = travelling, hold_ticks..1 = holding at target, triggers end at 1
 ; IntroWriteIdx  - next slot index to write in the circular trail pool
+; StarAnimContext - 0 = level intro (ACTION_INTRO), 1 = player switch (ACTION_SWITCH)
 ; IntroTrailX/Y  - tile position of each trail particle (INTRO_TRAIL_MAX slots)
 ; IntroTrailLife - remaining life of each trail particle (0 = inactive)
 ;------------------------------------------------------------------------------
-IntroStarX:           rs.w    1
-IntroStarY:           rs.w    1
-IntroTargX:           rs.w    1
-IntroTargY:           rs.w    1
+StarOriginX:          rs.w    1
+StarOriginY:          rs.w    1
+StarTargetX:          rs.w    1
+StarTargetY:          rs.w    1
 IntroTick:            rs.w    1
 IntroDone:            rs.w    1
 IntroWriteIdx:        rs.w    1
+StarAnimContext:      rs.w    1
 IntroTrailX:          rs.w    INTRO_TRAIL_MAX
 IntroTrailY:          rs.w    INTRO_TRAIL_MAX
 IntroTrailLife:       rs.w    INTRO_TRAIL_MAX

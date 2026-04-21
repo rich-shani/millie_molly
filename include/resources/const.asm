@@ -445,6 +445,7 @@ ACTION_MOVE         = 1
 ACTION_FALL         = 2
 ACTION_PLAYERPUSH   = 3
 ACTION_INTRO        = 4     ; level intro star animation
+ACTION_SWITCH       = 5     ; player switch star animation (same body as ACTION_INTRO)
 
 ;------------------------------------------------------------------------------
 ; Enemy tile animation
@@ -479,6 +480,7 @@ INTRO_STEP_TICKS    = 6     ; VBlanks per one-tile step
 INTRO_TRAIL_LIFE    = 40    ; VBlanks each trail particle remains visible
 INTRO_TRAIL_MAX     = 16    ; trail pool size (>= INTRO_TRAIL_LIFE/INTRO_STEP_TICKS = 10 active steps)
 INTRO_HOLD_TICKS    = 60    ; VBlanks the large star holds at the target before the intro ends (~1.2s PAL)
+SWITCH_HOLD_TICKS   = 20    ; VBlanks the large star holds during player-switch transition (~0.4s PAL)
 
 
 ;------------------------------------------------------------------------------
@@ -546,7 +548,8 @@ LEVEL_REVEAL        = 6     ; GameStatus: reverse-wipe reveal of the new level
 
 NUM_WIPE_PATTERNS   = 8     ; must be a power of 2 (AND mask used for selection)
 WIPE_SPEED          = 4     ; tiles blitted per VBlank (63 frames ≈ 1.26s PAL)
-WIPE_HOLD_TICKS     = 20    ; frames to hold black before loading next level (~0.4s)
+WIPE_HOLD_TICKS             = 20    ; frames to hold black before loading next level (~0.4s)
+LEVEL_COMPLETE_HOLD_TICKS   = 40    ; frames to pause on the finished level before the wipe starts (~0.8s PAL)
 
 WIPE_CENTER_X       = 7     ; centre tile column (0-based, 14-column grid)
 WIPE_CENTER_Y       = 4     ; centre tile row    (0-based,  9-row   grid)

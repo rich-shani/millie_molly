@@ -4,7 +4,7 @@ description: Current state of Millie and Molly Amiga port - completed fixes, wor
 type: project
 ---
 
-# Millie and Molly Amiga Port - Project State (April 19, 2026)
+# Millie and Molly Amiga Port - Project State (April 20, 2026)
 
 ## Overview
 Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written in 68000 assembly with Blitter/Copper/DMA programming. Game is functionally playable with core mechanics working.
@@ -28,13 +28,43 @@ Amiga 500/600/1200 port of the puzzle-platformer game Millie and Molly, written 
 - **Enemy death cloud animation**: When PlayerKillEnemy kills an enemy, a 7-frame cloud puff (SPRITE_CLOUD_A..G) plays at the enemy's tile for CLOUD_TOTAL_TICKS (42 VBlanks, ~840ms PAL)
 
 ### In Progress / TODO
-- **Actor fall blit mask bug**: When an actor falls and lands, the background under the tile is not shown correctly at the final position (transparent areas show stale actor graphics instead of background). Root cause identified (RestoreBackgroundTile uses tile-rounded Y coordinates, missing sub-pixel spillover into the landing tile) but fix not yet verified — previous attempt reverted.
 - **Cloud animation z-order**: Cloud plays in bitplanes; player uses hardware sprites (always in front of bitplanes). Copper BPLCON2 trick (Option 1) was agreed upon but not yet implemented — would insert WAIT+MOVE pairs into cpTest copper list to give bitplane priority over sprites for the cloud tile's scanlines only.
-- Fall animation easing refinement
 - Rewind/undo mechanic
 - Game presentation polish
 - Handle F3 to start game in TitleRun (partially implemented - see last commit)
 - Fix missing player start positions in some level data files
+
+## Session 6 Work (April 20, 2026)
+
+### New Blitter Routine: WipeBlitWhite (`mapstuff.asm`)
+
+Added `WipeBlitWhite` alongside the existing `WipeBlitBlack`. Identical structure but uses minterm `$FA` (A | C) instead of `$0A` (~A & C): inside the tile area (A=1, gated by BLTAFWM/BLTALWM) pixels are set to 1 (white); guard bits outside the 24-pixel tile boundary are preserved via C. Both routines share the same shift-and-mask logic (`BLTAFWM=$FFFF/BLTALWM=$FF00` for X aligned to byte, `$00FF/$FFFF` for X shifted 8 bits).
+
+### Bug Fix: Ladder climb continues after reaching the top (`player.asm` — `PlayerIdle`)
+
+**Problem**: When holding Up and climbing a ladder, then adding Left or Right, the player kept moving Up (and sideways) after leaving the ladder tile. Root cause: `Player_DirectionY` was not cleared before the directional input checks. When Left or Right was detected, the code branched directly to `.move` leaving `Player_DirectionY` as `-1` from the previous frame, bypassing the ladder tile validity check entirely.
+
+**Fix**: Added `clr.w Player_DirectionX(a4)` and `clr.w Player_DirectionY(a4)` at the top of the input-reading block, before any directional checks. Both directions now default to 0 each frame; the only way `DirectionY` reaches `.move` as `-1` is through the explicit ladder check path.
+
+### Fall Physics: Constant Acceleration (`player.asm`)
+
+Replaced the ease-out (fast→slow) quadratic table lookup with genuine accelerating (slow→fast) physics for both player and actor falls.
+
+**Player fall (`ActionPlayerFall`)**:
+- `Player_ActionFrame` is now a velocity counter, not a table index
+- Each frame: `ActionFrame += 1` (velocity), `Player_YDec += ActionFrame` (position)
+- Gives constant acceleration (quadratic distance growth): 1-tile fall in ~7 frames, 9-tile fall in ~21 frames
+- Clamps `Player_YDec` to fall distance on overshoot
+
+**Actor fall (`ActionFallActors`)**:
+- Replaced constant `addq #1,Actor_YDec` with `velocity = YDec/2 + 1`; velocity grows as the actor falls further
+- No new struct fields needed — velocity derived from current position
+- Completion check changed from `bne` to `blo` (unsigned less-than) to correctly handle variable-size steps that overshoot the target
+- `Actor_YDec` is clamped to `Actor_FallY` **before** `DrawActor` is called, preventing the sprite from bleeding into the tile below the landing row when a large velocity step overshoots
+
+**Actor fall overshoot rendering fix**: Previously, when a fast-falling actor's final velocity step overshot `Actor_FallY`, `DrawActor` was called at the overshot position, painting pixels into the tile below. When the fall then completed, `Actor_HasFalled` was cleared so that tile was never restored. Fix: clamp `Actor_YDec` to `Actor_FallY` before `DrawActor` so the sprite is never rendered past the landing tile.
+
+---
 
 ## Session 5 Work (April 19, 2026)
 
@@ -204,18 +234,18 @@ When an actor finishes a fall, a 4-frame smoke/puff animation plays over the lan
 
 ## Known Issues
 - Some level data files may be missing BLOCK_MILLIESTART or BLOCK_MOLLYSTART markers — use `inspect_levels.py missing`
-- Actor fall blit mask bug: stale graphics at sub-pixel landing position (root cause known, fix pending)
 - Smoke puff impact animation untested in UAE — sprite indices 98–101 provisional
 - Cloud death animation untested in UAE — sprite indices 132–138 provisional
 - Cloud appears behind player sprite (hardware sprite always in front of bitplanes) — copper fix designed, not yet coded
 
 ## Next Steps if Resuming
 1. **Build and test**: `vasmm68k_mot -Fhunkexe -o main.exe main.asm`
-2. **Test enemy animation**: Load any level with enemies — verify tiles cycle A→B→C→D smoothly; adjust `ENEMY_ANIM_TICKS` in `const.asm` if speed is wrong
-3. **Test cloud death**: Kill an enemy — verify 7-frame cloud puff plays at the tile; adjust `SPRITE_CLOUD_A` index if wrong frames appear
-4. **Implement copper cloud z-order fix**: Add `cpCloudPri` to `cpTest` copper list; patch VP bytes from `ActionCloudActors`
-5. **Fix actor fall blit mask bug**: Clear the sub-pixel Y spillover row before the final `DrawActor` call
-6. **Fix missing player starts**: `python3 tools/inspect_levels.py missing`
+2. **Test fall physics**: Verify player and actor falls accelerate visually; tune the actor velocity formula (`lsr.w #1` = divide by 2) in `ActionFallActors` if feel is off
+3. **Test ladder fix**: Hold Up on a ladder, add Left or Right near the top — confirm player stops at the top and does not continue climbing
+4. **Test enemy animation**: Load any level with enemies — verify tiles cycle A→B→C→D smoothly; adjust `ENEMY_ANIM_TICKS` in `const.asm` if speed is wrong
+5. **Test cloud death**: Kill an enemy — verify 7-frame cloud puff plays at the tile; adjust `SPRITE_CLOUD_A` index if wrong frames appear
+6. **Implement copper cloud z-order fix**: Add `cpCloudPri` to `cpTest` copper list; patch VP bytes from `ActionCloudActors`
+7. **Fix missing player starts**: `python3 tools/inspect_levels.py missing`
 
 ## Build & Test
 ```bash
@@ -235,4 +265,4 @@ uae --fullscreen
 9. **Enemy animation sync**: Deriving frame index from TickCounter (global timer) keeps all enemies in sync without per-actor state
 
 ## Session Continuity
-This file captures the project state as of April 19, 2026 (Session 5). Session 5 added: enemy tile cycling animation (AnimateEnemies in actors.asm), enemy death cloud puff animation (ActionCloudActors / PlayerKillActor in player.asm), and designed (but did not implement) the copper BPLCON2 z-order fix for cloud-over-player. All new features are untested in UAE. Next session should build, test both new animations, then implement the copper cloud z-order fix.
+This file captures the project state as of April 20, 2026 (Session 6). Session 6 added: `WipeBlitWhite` routine (mapstuff.asm), fixed the ladder-at-top-with-left/right bug (player.asm `PlayerIdle`), replaced ease-out quadratic table fall with constant-acceleration physics for both player and actor falls, and fixed the actor fall overshoot rendering bug that caused actor pixels to bleed into the tile below the landing row. Next session should build and test all of the above, then implement the copper BPLCON2 z-order fix for the cloud death animation.
