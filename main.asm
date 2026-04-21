@@ -122,10 +122,10 @@ Restart:
 LevelTest:
     tst.w      LevelComplete(a5)
     beq        .nope
+
     addq.w     #1,LevelId(a5)
     ; change GameStatus to LEVEL_INIT so that GameRun skips PlayerLogic and ShowSprite
     move.w      #LEVEL_INIT,GameStatus(a5)
-
     rts                             ; return; GameStatusRun dispatches LevelWipeRun next frame
 
 .nope
@@ -136,7 +136,7 @@ LevelTest:
     tst.w      LevelId(a5)
     beq        .nof1
     subq.w     #1,LevelId(a5)
-    bra        .draw
+    bra        .changelevel
 .nof1
     tst.b      KEY_F2(a0)
     beq        .nof2
@@ -144,10 +144,12 @@ LevelTest:
     cmp.w      #99,LevelId(a5)
     beq        .nof2
     addq.w     #1,LevelId(a5)
-.draw
-    bsr         DrawMap
-    bsr         DrawPlayersAndActors
-    bsr         LevelIntroSetup
+.changelevel
+   ; set GameStatus to LEVEL_INIT to force level initization sequence
+    move.w      #LEVEL_INIT,GameStatus(a5)
+ ;   bsr         DrawMap
+;    bsr         DrawPlayersAndActors
+ ;   bsr         LevelIntroSetup
 .nof2
     rts
 
@@ -208,7 +210,7 @@ DrawPlayer:
 ; Initialises the game-state variable and installs the keyboard handler.
 ; Additional copper / sprite / level setup is currently commented out; those
 ; operations are now driven by the GameStatus state machine (TitleSetup ->
-; GameTestInit path) rather than being done unconditionally at startup.
+; GameInit path) rather than being done unconditionally at startup.
 ;
 ; Called from Restart before the VBlank interrupt is enabled.
 ; a5 and a6 must already be loaded.
@@ -234,7 +236,7 @@ Init:
 
 
 ;==============================================================================
-; GameTestInit  -  Full game screen initialisation (called from TitleSetup or
+; GameInit  -  Full game screen initialisation (called from TitleSetup or
 ;                  directly when entering gameplay state)
 ;
 ; Sets up the game copper list, generates the hardware sprite mask data,
@@ -250,7 +252,7 @@ Init:
 ;   6. Set LevelId = START_LEVEL and call DrawMap to render the opening level
 ;==============================================================================
 
-GameTestInit:
+GameInit:
     bsr        GameCopperInit
     bsr        GenSpriteMask
     move.l     #cpTest,COP1LC(a6)
@@ -258,14 +260,19 @@ GameTestInit:
 
     move.l     #-1,ScreenMemEnd
     move.w     #BASE_DMA,DMACON(a6)
-
-    move.w     #START_LEVEL,LevelId(a5)
-
-    bsr         DrawMap
-    bsr         DrawPlayersAndActors
-    bsr         LevelIntroSetup
-
     rts
+
+
+ ;   move.w     #START_LEVEL,LevelId(a5)
+
+    ; change GameStatus to LEVEL_INIT
+ ;   move.w      #LEVEL_INIT,GameStatus(a5)
+
+;    bsr         DrawMap
+ ;   bsr         DrawPlayersAndActors
+  ;  bsr         LevelIntroSetup
+
+  ;  rts
 
 ;==============================================================================
 ; CreateClearMasks  -  Pre-compute the 16 blitter first-word masks for ClearActor
@@ -283,7 +290,7 @@ GameTestInit:
 ;   to drop out (BCC), set bit 31 to $8000 (LSB of the WORD above).
 ;   This produces masks offset by 0..15 bit positions.
 ;
-; Called once at game startup (from Init / GameTestInit).
+; Called once at game startup (from Init / GameInit).
 ;==============================================================================
 
 CreateClearMasks:
@@ -363,7 +370,7 @@ VBlankTick:
 ;==============================================================================
 ; GameCopperInit  -  Patch the game copper list with screen and palette data
 ;
-; Called from GameTestInit before the copper list is activated.  Fills in the
+; Called from GameInit before the copper list is activated.  Fills in the
 ; runtime-variable fields of cpTest that the assembler left as zeros:
 ;
 ;   cpPlanes  - writes the physical addresses of DisplayScreen's five bitplanes

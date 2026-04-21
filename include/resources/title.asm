@@ -324,7 +324,7 @@ ClearTitleSprites:
 ;
 ; F3 pressed:
 ;   - Clears the key state to prevent repeat.
-;   - Calls GameTestInit to set up the game copper list, sprite masks, DMA,
+;   - Calls GameInit to set up the game copper list, sprite masks, DMA,
 ;     and draw the first level (START_LEVEL).
 ;   - Advances GameStatus to 2 (GameRun).
 ;   - Returns immediately (no star blit needed this frame).
@@ -340,8 +340,13 @@ TitleRun:
     beq         .nostart               ; no - continue title animation
 
     clr.b       KEY_F3(a0)             ; consume the keypress (prevent repeat)
-    bsr         GameTestInit           ; set up game copper, sprites, DMA, draw first level
-    move.w      #GAME_RUN,GameStatus(a5)      ; advance to state 2 (GameRun)
+    bsr         GameInit                ; set up game copper, sprites, DMA
+
+    ; setup initial level (START_LEVEL)
+    move.w      #START_LEVEL,LevelId(a5)
+    ; set GameStatus to LEVEL_INIT to force level initization sequence
+    move.w      #LEVEL_INIT,GameStatus(a5)
+
     rts                                ; return immediately - stars not needed this frame
 
 .nostart

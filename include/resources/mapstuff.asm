@@ -84,7 +84,7 @@ DrawMap:
     rts
 
 DrawPlayersAndActors:
-    bsr           CopySaveToStatic       ; copy clean background to DisplayScreen
+ ;   bsr           CopySaveToStatic       ; copy clean background to DisplayScreen
     bsr           DrawStaticActors       ; blit actor tiles on top of DisplayScreen
     bsr           DrawInitialPlayers     ; draw both players at level start
 
