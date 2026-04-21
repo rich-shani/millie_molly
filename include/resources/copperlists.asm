@@ -155,6 +155,24 @@ cpPal:
     dc.w    COLOR30,0               ; colour 30 (patched)
     dc.w    COLOR31,0               ; colour 31 (patched)
 
+; cpCloudBPLCON2  - Mid-screen priority switching for cloud death animations.
+;
+; When a cloud animation is active AND a player is in the same tile, we temporarily
+; lower sprite priority on the scanlines where the cloud is rendered, so the cloud
+; (blitted to bitplanes) appears above the player sprite.
+;
+; Two WAIT/MOVE pairs: one at cloud start scanline, one at cloud end scanline.
+; When no player/cloud overlap, WAITs are set to $FFDF/$FFFE (never matches).
+; Patched by ActionCloudActors each frame if Player_X == Cloud_X AND Player_Y == Cloud_Y.
+;
+cpCloudBPLCON2Start:
+    dc.w    $FFDF,$FFFE             ; WAIT (start): $FFDF/$FFFE = never matches (patched if player in cloud tile)
+    dc.w    BPLCON2,$00002           ; MOVE BPLCON2, $0000: bitplanes above sprites (cloud visible over sprite)
+
+cpCloudBPLCON2End:
+    dc.w    $FFDF,$FFFE             ; WAIT (end):   $FFDF/$FFFE = never matches (patched if player in cloud tile)
+    dc.w    BPLCON2,$0024           ; MOVE BPLCON2, $0024: restore sprites above bitplanes
+
     dc.l    COPPER_HALT             ; end-of-list marker 1 ($fffffffe)
     dc.l    COPPER_HALT             ; end-of-list marker 2 (belt-and-braces)
 
