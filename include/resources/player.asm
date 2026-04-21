@@ -150,14 +150,26 @@ ActionFallActors:
     add.w       d2,d1
     bsr         RestoreBackgroundTile        ; restore background from NonDisplayScreen
 
-    addq.w      #1,Actor_YDec(a3)       ; advance sub-pixel Y by one pixel
+    ; Accelerating fall: velocity = YDec/2 + 1 (grows as fall distance increases)
+    move.w      Actor_YDec(a3),d0
+    lsr.w       #1,d0                   ; d0 = current distance / 2
+    addq.w      #1,d0                   ; minimum 1 pixel/frame
+    add.w       d0,Actor_YDec(a3)       ; advance fall position
 
-    bsr         DrawActor               ; redraw at new sub-pixel position
+    ; Clamp to target before drawing: prevents the sprite bleeding into the tile
+    ; below the landing row when a large velocity step overshoots Actor_FallY.
+    move.w      Actor_YDec(a3),d0
+    cmp.w       Actor_FallY(a3),d0
+    blo         .draw
+    move.w      Actor_FallY(a3),Actor_YDec(a3)
+
+.draw
+    bsr         DrawActor               ; redraw at new (clamped) sub-pixel position
 
     ; Has the fall reached its target?
     move.w      Actor_YDec(a3),d0
-    cmp.w       Actor_FallY(a3),d0     ; reached target Y offset?
-    bne         .next                   ; still falling
+    cmp.w       Actor_FallY(a3),d0     ; compare with target distance
+    blo         .next                   ; still falling (unsigned less-than)
 
     ; Fall complete: clean up and start impact smoke animation
     clr.w       Actor_YDec(a3)         ; reset sub-tile offset
@@ -330,9 +342,9 @@ ActionPlayerPush:
 ; Called from ActionFall each VBlank while Player_Fallen is set.
 ;
 ; The fall distance (in pixels) is (Player_NextY - Player_Y) * 24.
-; The quadratic easing table maps ActionFrame (which increments each frame)
-; to a pixel offset within that range.  When the quadratic value reaches or
-; exceeds the total fall distance, the fall is complete.
+; Player_ActionFrame acts as a velocity counter: it increments by 1 each frame
+; and is added to Player_YDec, giving constant acceleration (quadratic distance
+; growth).  The fall ends when Player_YDec reaches the total fall distance.
 ;
 ; On completion:
 ;   - Player_Fallen is cleared
@@ -354,23 +366,20 @@ ActionPlayerFall:
     mulu        #24,d1
     sub.w       d0,d1                  ; d1 = total fall distance in pixels
 
-    ; Sample quadratic table: divide table value by fall distance to get pixel offset
+    ; Accelerating fall: ActionFrame is the velocity (pixels/frame).
+    ; Increment velocity first, then accumulate into YDec (position).
+    addq.w      #1,Player_ActionFrame(a4)  ; velocity += 1 pixel/frame each frame
     move.w      Player_ActionFrame(a4),d2
-    lea         Quadratic,a0
-    add.w       d2,d2                  ; word index
-    move.w      (a0,d2.w),d2          ; d2 = quadratic easing value for this frame
-    divu        d1,d2                  ; d2 = easing value / total distance = current pixel offset
+    add.w       d2,Player_YDec(a4)         ; position += velocity
+    move.w      Player_YDec(a4),d2         ; d2 = current pixel offset
 
-    ; Clamp to the total distance (don't overshoot)
+    ; Clamp to total fall distance (handle overshoot from large velocity step)
     cmp.w       d1,d2
-    bcs         .inrange
-    move.w      d1,d2                  ; clamp at maximum
+    blo         .inrange
+    move.w      d1,d2                      ; clamp at maximum
+    move.w      d1,Player_YDec(a4)
 
 .inrange
-    move.w      d2,Player_YDec(a4)    ; apply as sub-tile Y offset
-
-    addq.w      #1,Player_ActionFrame(a4)  ; advance easing frame counter
-
     ; Check if we have reached the end of the fall
     cmp.w       d1,d2
     bne         .show                  ; not yet at the destination
@@ -1201,6 +1210,11 @@ PlayerIdle:
     bsr         PlayerShowIdleAnim    ; update idle animation frame
 
     move.b      ControlsHold(a5),d0  ; d0 = newly-pressed keys this frame
+
+    ; Clear both directions so left/right branches don't inherit a stale DirectionY
+    ; from the previous frame (e.g. a ladder climb that has since ended).
+    clr.w       Player_DirectionX(a4)
+    clr.w       Player_DirectionY(a4)
 
     ; Check each direction; set DirectionX/Y and branch to .move if pressed
     move.w      #1,Player_DirectionX(a4)    ; assume right

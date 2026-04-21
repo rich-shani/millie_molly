@@ -304,7 +304,7 @@ SPRITE_SIZE         = 4+(TILE_HEIGHT*4)+4       ; 104 bytes per sprite structure
 ;------------------------------------------------------------------------------
 ; Default starting level (0-based index into levels.bin).
 ;------------------------------------------------------------------------------
-START_LEVEL         = 0
+START_LEVEL         = 20
 
 
 ;------------------------------------------------------------------------------
@@ -545,7 +545,7 @@ LEVEL_HOLD          = 5     ; GameStatus: hold all-black while next level loads
 LEVEL_REVEAL        = 6     ; GameStatus: reverse-wipe reveal of the new level
 
 NUM_WIPE_PATTERNS   = 8     ; must be a power of 2 (AND mask used for selection)
-WIPE_SPEED          = 2     ; tiles blitted per VBlank (63 frames ≈ 1.26s PAL)
+WIPE_SPEED          = 4     ; tiles blitted per VBlank (63 frames ≈ 1.26s PAL)
 WIPE_HOLD_TICKS     = 20    ; frames to hold black before loading next level (~0.4s)
 
 WIPE_CENTER_X       = 7     ; centre tile column (0-based, 14-column grid)

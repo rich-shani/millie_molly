@@ -1,11 +1,7 @@
-. fall animation ( straight in to fall! )
+
 
 . add animation for the DIRT when we kill that tile
 
-. add a PLAY GAME option on the title screen (instead of F3)
+. add a PLAY GAME option on the title screen (instead of F7)
 
 . test joystick support
-
-. add PRO PACK and test as an ADF
-
-. use TTE to add an cracktro intro

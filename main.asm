@@ -144,13 +144,16 @@ LevelTest:
     cmp.w      #99,LevelId(a5)
     beq        .nof2
     addq.w     #1,LevelId(a5)
+    bra         .changelevel
+.nof2
+    tst.b       KEY_F3(a0)
+    beq         .nokeypress
+    clr.b       KEY_F3(a0)
+    ; retain the current LEVEL, just reload ...
 .changelevel
    ; set GameStatus to LEVEL_INIT to force level initization sequence
     move.w      #LEVEL_INIT,GameStatus(a5)
- ;   bsr         DrawMap
-;    bsr         DrawPlayersAndActors
- ;   bsr         LevelIntroSetup
-.nof2
+.nokeypress
     rts
 
 ;==============================================================================

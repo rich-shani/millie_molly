@@ -320,26 +320,26 @@ ClearTitleSprites:
 ; TitleRun  -  Title screen per-frame handler (game state 1)
 ;
 ; Called every VBlank while the title screen is active.
-; Checks for F3 to start the game, otherwise animates the four star objects.
+; Checks for F7 to start the game, otherwise animates the four star objects.
 ;
-; F3 pressed:
+; F7 pressed:
 ;   - Clears the key state to prevent repeat.
 ;   - Calls GameInit to set up the game copper list, sprite masks, DMA,
 ;     and draw the first level (START_LEVEL).
 ;   - Advances GameStatus to 2 (GameRun).
 ;   - Returns immediately (no star blit needed this frame).
 ;
-; F3 not pressed:
+; F7 not pressed:
 ;   - Falls through to TitleStarDraw as before.
 ;==============================================================================
 
 TitleRun:
-    ; Check for F3 key to start the game
+    ; Check for F7 key to start the game
     lea         Keys,a0                ; a0 -> keyboard state buffer
-    tst.b       KEY_F3(a0)             ; is F3 held?
+    tst.b       KEY_F7(a0)             ; is F7 held?
     beq         .nostart               ; no - continue title animation
 
-    clr.b       KEY_F3(a0)             ; consume the keypress (prevent repeat)
+    clr.b       KEY_F7(a0)             ; consume the keypress (prevent repeat)
     bsr         GameInit                ; set up game copper, sprites, DMA
 
     ; setup initial level (START_LEVEL)
