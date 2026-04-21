@@ -4,7 +4,11 @@ A faithful Amiga port of the classic puzzle-platformer game **Millie and Molly**
 
 ## Overview
 
-This is a complete reimplementation of the Millie and Molly puzzle game for the Commodore Amiga, written entirely in 68000 assembly language. The port showcases advanced Amiga programming techniques including:
+Millie & Molly is a two-character puzzle-platformer for the Amiga, written entirely in
+Motorola 68000 assembly. The game targets OCS/ECS hardware at PAL 50 Hz, uses all five
+bitplanes (32 colours), four hardware sprite channels (two attached pairs for the player
+characters), and drives the blitter exclusively for tile rendering, background restoration,
+and screen wipe transitions.
 
 - **Blitter-accelerated graphics** - All tile rendering uses the Amiga's hardware Blitter for optimal performance
 - **Copper programming** - Hardware interrupt-driven vertical-blank synchronization and palette management
