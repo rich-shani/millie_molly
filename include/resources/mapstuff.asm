@@ -2013,69 +2013,6 @@ WipeBlitWhite:
 
 
 ;==============================================================================
-; LevelSetup  -  Initialise and start the level transition
-;
-; Called from LevelTransitionRun for the LEVEL_INIT phase, immediately after LevelId is incremented.
-;
-; Actions:
-;   1. Reset WipeTilesDone = 0.
-;   2. Pick a random wipe pattern using RANDOMWORD and store in WipePattern.
-;   3. Call the appropriate WipeFill routine to build WipeTileX/Y arrays.
-;   4. Hide both hardware player sprites (set SpritePtrs to NullSprite).
-;
-; On entry: a5 = Variables base, a6 = CUSTOM.
-;==============================================================================
-
-LevelSetup:
-    PUSHALL
-
-    ; Initialise wipe counter (WipeHoldTick is set when wipe completes)
-    clr.w       WipeTilesDone(a5)
-
-    ; Pick random pattern (0..NUM_WIPE_PATTERNS-1)
-    RANDOMWORD                          ; d0.w = pseudo-random value
-    and.w       #NUM_WIPE_PATTERNS-1,d0 ; mask to pattern range (power of 2)
-    move.w      d0,WipePattern(a5)
-
-    ; Dispatch to the appropriate fill routine via absolute pointer table
-    lsl.w       #2,d0                   ; d0 = pattern * 4 (longword table index)
-    lea         .fill_ptrs(pc),a0
-    move.l      (a0,d0.w),a0            ; a0 = fill routine address
-    jsr         (a0)                    ; fill WipeTileX and WipeTileY arrays
-
-    ; Hide hardware player sprites (point all four SpritePtrs to NullSprite)
-    move.l      #NullSprite,d0
-    move.l      d0,SpritePtrs(a5)
-    move.l      d0,SpritePtrs+4(a5)
-    move.l      d0,SpritePtrs+8(a5)
-    move.l      d0,SpritePtrs+12(a5)
-    lea         cpSprites,a0
-    lea         SpritePtrs(a5),a1
-    moveq       #4-1,d7
-.patch_sprites
-    move.l      (a1)+,d0
-    move.w      d0,6(a0)                ; SPRxPTL
-    swap        d0
-    move.w      d0,2(a0)                ; SPRxPTH
-    add.l       #8,a0                   ; next copper sprite entry
-    dbra        d7,.patch_sprites
-
-    POPALL
-    rts
-
-; Absolute address table - one longword per wipe pattern (8 entries)
-.fill_ptrs
-    dc.l        WipeFillTopBottom
-    dc.l        WipeFillBottomTop
-    dc.l        WipeFillLeftRight
-    dc.l        WipeFillRightLeft
-    dc.l        WipeFillDiagTLBR
-    dc.l        WipeFillDiagBRTL
-    dc.l        WipeFillCenterOut
-    dc.l        WipeFillCenterIn
-
-
-;==============================================================================
 ; LevelTransitionRun  -  Per-frame level transition handler
 ;
 ; Called every VBlank from GameStatusRun for states 3, 4, and 5.
@@ -2160,7 +2097,7 @@ LevelTransitionRun:
 .hold_done
     ; Hold complete - build next level and set up the reveal
     bsr         LevelRevealSetup        ; sets LEVEL_REVEAL and primes WipeTileX/Y
-  ;  bsr LevelSetup
+    ;bsr LevelSetup
     move.w      #LEVEL_REVEAL,GameStatus(a5)
     rts
 
@@ -2432,6 +2369,58 @@ WipeReverseBuffer:
     rts
 
 ;==============================================================================
+; LevelSetup  -  Initialise and start the level transition
+;
+; Called from LevelTransitionRun for the LEVEL_INIT phase, immediately after LevelId is incremented.
+;
+; Actions:
+;   1. Reset WipeTilesDone = 0.
+;   2. Pick a random wipe pattern using RANDOMWORD and store in WipePattern.
+;   3. Call the appropriate WipeFill routine to build WipeTileX/Y arrays.
+;   4. Hide both hardware player sprites (set SpritePtrs to NullSprite).
+;
+; On entry: a5 = Variables base, a6 = CUSTOM.
+;==============================================================================
+
+LevelSetup:
+    PUSHALL
+
+    ; Initialise wipe counter (WipeHoldTick is set when wipe completes)
+    clr.w       WipeTilesDone(a5)
+
+    ; Pick random pattern (0..NUM_WIPE_PATTERNS-1)
+    RANDOMWORD                          ; d0.w = pseudo-random value
+    and.w       #NUM_WIPE_PATTERNS-1,d0 ; mask to pattern range (power of 2)
+    move.w      d0,WipePattern(a5)
+
+    ; Dispatch to the appropriate fill routine via absolute pointer table
+    lsl.w       #2,d0                   ; d0 = pattern * 4 (longword table index)
+    lea         WipeFillTable(pc),a0
+    move.l      (a0,d0.w),a0            ; a0 = fill routine address
+    jsr         (a0)                    ; fill WipeTileX and WipeTileY arrays
+
+    ; Hide hardware player sprites (point all four SpritePtrs to NullSprite)
+    move.l      #NullSprite,d0
+    move.l      d0,SpritePtrs(a5)
+    move.l      d0,SpritePtrs+4(a5)
+    move.l      d0,SpritePtrs+8(a5)
+    move.l      d0,SpritePtrs+12(a5)
+    lea         cpSprites,a0
+    lea         SpritePtrs(a5),a1
+    moveq       #4-1,d7
+.patch_sprites
+    move.l      (a1)+,d0
+    move.w      d0,6(a0)                ; SPRxPTL
+    swap        d0
+    move.w      d0,2(a0)                ; SPRxPTH
+    add.l       #8,a0                   ; next copper sprite entry
+    dbra        d7,.patch_sprites
+
+    POPALL
+    rts
+
+
+;==============================================================================
 ; LevelRevealSetup  -  Build the new level and arm the reveal pass
 ;
 ; Called from LevelTransitionRun when the LEVEL_HOLD countdown reaches zero.
@@ -2463,14 +2452,24 @@ LevelRevealSetup:
 
     ; Dispatch to the appropriate fill routine via absolute pointer table
     lsl.w       #2,d0                   ; d0 = pattern * 4 (longword table index)
-    lea         .fill_ptrs(pc),a0
+    lea         WipeFillTable(pc),a0
     move.l      (a0,d0.w),a0            ; a0 = fill routine address
     jsr         (a0)                    ; fill WipeTileX and WipeTileY arrays
 
     POPALL
     rts
 
-    
+; Absolute address table - one longword per wipe pattern (8 entries)
+WipeFillTable:
+    dc.l        WipeFillTopBottom
+    dc.l        WipeFillBottomTop
+    dc.l        WipeFillLeftRight
+    dc.l        WipeFillRightLeft
+    dc.l        WipeFillDiagTLBR
+    dc.l        WipeFillDiagBRTL
+    dc.l        WipeFillCenterOut
+    dc.l        WipeFillCenterIn
+    even
 
 ;==============================================================================
 ; WipeOppositeTable  -  Maps each wipe pattern to its directional inverse
