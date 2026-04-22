@@ -4,10 +4,17 @@
 ; spritetools.asm  -  Hardware Sprite Display
 ;==============================================================================
 ;
-; The player character is displayed using four Amiga hardware sprites
-; arranged as two "attached" pairs (SPR0+SPR1 and SPR2+SPR3).
+; Channel assignment:
+;   SPR0-3  player character (two attached pairs, 24px wide, 16 colours)
+;   SPR4-7  unused (NullSprite)
 ;
-; Why four sprites for one character?
+; Note on SPR6+7: OCS pair 3 (SPR6+7) exhibits a colour-decode quirk on real
+; OCS hardware: when used as an attached pair, pixels at the right edge produce
+; colour bleed (wrong palette entries, visible as white fringing).  This was
+; reproduced when the player right-half was on SPR6+7 and is absent on pairs
+; 0-2.  Keeping SPR4-7 at NullSprite avoids the issue entirely.
+;
+; Why four sprites for the player?
 ;   - Each hardware sprite is 16 pixels wide.
 ;   - The player is 24 pixels wide.
 ;   - Two 16-pixel sprites placed 16 pixels apart give a 32-pixel combined width,
@@ -87,16 +94,15 @@ ShowSprite:
     add.l     d0,a0                      ; a0 -> SPR0 data for this frame
 
     ; --- SPR0 (left half, top colour bits) ---
-    ; Position d5 = { $0080 | attach_bit, TILE_HEIGHT }
-    ; The high word $0080 means: not attached (even sprite, no attach bit).
+    ; d5 = { attach_byte (hi), TILE_HEIGHT (lo) }; $80 in hi sets attach bit (ignored on even sprites)
     move.w    #$80,d5
     swap      d5
-    move.w    #TILE_HEIGHT,d5            ; d5.hi = $0080 (no attach), d5.lo = height
+    move.w    #TILE_HEIGHT,d5            ; d5.hi = $0080, d5.lo = height
 
     move.l    a0,SpritePtrs(a5)          ; store SPR0 pointer for copper list update
     bsr       SpriteCoord                ; write SPRxPOS/SPRxCTL to sprite data header
 
-    ; --- SPR1 (left half, bottom colour bits - attached to SPR0) ---
+    ; --- SPR2 (right half, top colour bits) ---
     add.w     #16,d1                     ; shift X right 16 pixels for right-half pair
     add.w     #SPRITE_SIZE,a0            ; advance to next sprite structure (SPR2 data)
     move.l    a0,SpritePtrs+8(a5)        ; SPR2 pointer (right half, top bits)
@@ -106,7 +112,7 @@ ShowSprite:
     move.w    #TILE_HEIGHT,d5
     bsr       SpriteCoord                ; write SPR2 header
 
-    ; --- SPR2 (right half, top colour bits) ---
+    ; --- SPR1 (left half, bottom colour bits - attached to SPR0) ---
     sub.w     #16,d1                     ; restore X to left-half position
     add.w     #SPRITE_SIZE,a0            ; advance to SPR1 data
 
@@ -133,7 +139,8 @@ ShowSprite:
     ; section of the copper list so Agnus knows where to fetch sprite data.
     ; Each copper entry is 4 bytes: { reg_word, data_word }.
     ; Pointer stored as:  high 16 bits at +2, low 16 bits at +6 of each entry pair.
-    lea       cpSprites,a0              ; a0 -> first sprite copper entry (SPR0PTH)
+    ; Player uses SPR0-3: starts at cpSprites+SPRITE_00_OFFSET (offset 0).
+    lea       cpSprites+SPRITE_00_OFFSET,a0  ; a0 -> SPR0PTH copper entry
     move.l    #NullSprite,d0             ; default pointer (not used here but d0 recycled)
     lea       SpritePtrs(a5),a1          ; a1 -> our four saved sprite pointers
     moveq     #4-1,d7                    ; loop: 4 sprites to patch

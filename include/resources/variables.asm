@@ -228,7 +228,6 @@ IntroTrailLife:       rs.w    INTRO_TRAIL_MAX
 ;------------------------------------------------------------------------------
 CloudActors:          rs.l    MAP_SIZE    ; up to 88 cloud animation actor pointers
 CloudActorsCount:     rs.w    1           ; number of actors ever added (reset at level load)
-CloudCopperRestartNeeded: rs.w 1          ; flag: 1 if copper BPLCON2 patch/reset needs COPJMP1 restart
 
 ;------------------------------------------------------------------------------
 ; Level wipe transition state

@@ -13,7 +13,9 @@
       "Bash(git *)",
       "Bash(cat)",
       "Read(//tmp/**)",
-      "Bash(vasmm68k_mot -Fhunkexe -o main_test.exe main.asm)"
+      "Bash(vasmm68k_mot -Fhunkexe -o main_test.exe main.asm)",
+      "Bash(py *)",
+      "PowerShell(Move-Item *)"
     ]
   }
 }

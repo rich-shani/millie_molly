@@ -780,31 +780,25 @@ RedrawActorAtTile:
 ; Iterates CloudActors[0..CloudActorsCount-1]; actors with CloudTick=0 are
 ; skipped (already done).
 ;
+; Cloud frames are blitted to DisplayScreen via DrawSprite.  The player
+; hardware sprite (SPR0-3) sits in front of the bitplane, so the cloud
+; always appears behind the player - this is an accepted visual limitation.
+;
 ; For each actor with Actor_CloudTick > 0:
 ;   1. Compute frame index = (Actor_CloudTick - 1) / CLOUD_FRAME_TICKS
-;   2. If frame >= CLOUD_FRAMES: erase last cloud frame, clear Actor_CloudTick.
-;   3. Otherwise:
-;      a. RestoreBackgroundTile  - restore background behind the cloud
-;      b. DrawSprite        - blit cloud frame SPRITE_CLOUD_A + frame at bumped pixel pos
-;      c. Increment Actor_CloudTick
+;   2. If frame >= CLOUD_FRAMES: RestoreBackgroundTile, clear Actor_CloudTick.
+;   3. Otherwise: RestoreBackgroundTile, DrawSprite(cloud frame), increment tick.
 ;
-; Registers used: a2 (CloudActors list pointer), a3 (actor struct), d7 (loop counter)
-; a2 is PUSH/POPed around DrawSprite (which clobbers a2).
-;
-; The cloud animation is independent of Actor_Status (actor is already dead);
-; only Actor_CloudTick and Actor_X/Y are referenced.
+; Registers: a2=CloudActors pointer, a3=actor struct, d7=loop counter
+; a2 is PUSH/POPed around DrawSprite (DrawSprite clobbers a2).
 ;==============================================================================
 
 ActionCloudActors:
     move.w      CloudActorsCount(a5),d7
     subq.w      #1,d7
-    bmi         .no_clouds              ; no cloud actors registered
-
-    ; Load player pointer for tile collision checks
-    move.l      PlayerPtrs(a5),a4       ; a4 -> active player
+    bmi         .exit                   ; no cloud actors registered
 
     lea         CloudActors(a5),a2      ; a2 -> cloud actor pointer array
-    moveq       #0,d6                   ; d6 = flag: 1 if found active cloud with player, 0 otherwise
 
 .loop
     move.l      (a2)+,a3                ; a3 -> actor struct
@@ -812,25 +806,6 @@ ActionCloudActors:
     tst.w       Actor_CloudTick(a3)     ; animation active?
     beq         .next                   ; tick=0: already done, skip
 
-    ; --- Check if player is in same tile as cloud ---
-    tst.w       d6                      ; already patched copper?
-    bne         .skip_patch             ; yes, don't patch again
-
-    ; Player in cloud tile if: Player_X == Cloud_X AND Player_Y == Cloud_Y
- ;   move.w      Player_X(a4),d0         ; d0 = player tile X
- ;   cmp.w       Actor_X(a3),d0          ; compare with cloud tile X
- ;   bne         .skip_patch             ; not in same X tile, skip patch
-
-    move.w      Player_Y(a4),d0         ; d0 = player tile Y
-    cmp.w       Actor_Y(a3),d0          ; compare with cloud tile Y
-    bne         .skip_patch             ; not in same Y tile, skip patch
-
-    ; Player IS in cloud tile: patch copper for this cloud
-    move.w      Actor_Y(a3),d0          ; d0 = cloud tile Y (also player tile Y)
-    bsr         PatchCloudCopperBPLCON2 ; patch copper based on cloud Y position
-    moveq       #1,d6                   ; set flag: copper is now patched
-
-.skip_patch
     ; Compute frame index: (tick - 1) / CLOUD_FRAME_TICKS
     moveq       #0,d0
     move.w      Actor_CloudTick(a3),d0
@@ -838,56 +813,41 @@ ActionCloudActors:
     divu        #CLOUD_FRAME_TICKS,d0   ; d0.w = frame index (0..CLOUD_FRAMES-1+)
 
     cmp.w       #CLOUD_FRAMES,d0
-    bcc         .cloud_done             ; frame >= 7: all frames shown, clean up
+    bcc         .cloud_done             ; frame >= CLOUD_FRAMES: all frames shown
 
-    ; --- Draw cloud frame ---
-    PUSH        a2                      ; DrawSprite clobbers a2; preserve list pointer
+    ; --- Draw cloud frame via blitter ---
+    PUSH        a2                      ; DrawSprite clobbers a2
 
-    ; 1. Restore background from NonDisplayScreen (clears previous cloud frame)
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         RestoreBackgroundTile
+    bsr         RestoreBackgroundTile   ; erase previous cloud frame
 
-    ; 2. Compute sprite index for this frame
     move.w      Actor_CloudTick(a3),d2
     subq.w      #1,d2
     divu        #CLOUD_FRAME_TICKS,d2   ; d2.w = frame index
-    add.w       #SPRITE_CLOUD_A,d2      ; d2 = absolute sprite sheet index
+    add.w       #SPRITE_CLOUD_A,d2      ; absolute sprite sheet index
 
-    ; 3. Tile-aligned pixel position
     move.w      Actor_X(a3),d0
-    mulu        #24,d0                  ; d0 = pixel X
-
+    mulu        #24,d0                  ; pixel X
     move.w      Actor_Y(a3),d1
-    mulu        #24,d1                  ; d1 = pixel Y
+    mulu        #24,d1                  ; pixel Y
+    bsr         DrawSprite
 
-    bsr         DrawSprite              ; blit cloud frame to DisplayScreen
+    POP         a2
 
-    POP         a2                      ; restore CloudActors list pointer
-
-    addq.w      #1,Actor_CloudTick(a3)  ; advance to next tick
+    addq.w      #1,Actor_CloudTick(a3)
     bra         .next
 
 .cloud_done
-    ; Final frame shown: restore background and mark animation complete
     PUSH        a2
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
-    bsr         RestoreBackgroundTile        ; erase last cloud frame from screen
+    bsr         RestoreBackgroundTile   ; erase final cloud frame
     POP         a2
-    clr.w       Actor_CloudTick(a3)     ; mark animation done
+    clr.w       Actor_CloudTick(a3)
 
 .next
     dbra        d7,.loop
-
-    ; If we found and patched a cloud, we're done. Otherwise, reset copper.
-    tst.w       d6
-    bne         .exit
-    ; Fall through to .no_clouds
-
-.no_clouds
-    ; No active clouds with player in same tile: reset copper BPLCON2 switches to inactive state
-    bsr         ResetCloudCopperBPLCON2
 
 .exit
     rts
@@ -908,96 +868,6 @@ ActionCloudActors:
 ;      - Call PlayerFallLogic to check if the player should now fall
 ;      - Call ActorFallAll to check if any actors should now fall
 ;      - If actors fell, set ActionStatus to ACTION_FALL
-;==============================================================================
-; PatchCloudCopperBPLCON2  -  Patch copper list for cloud animation priority
-;
-; Called from ActionCloudActors only when:
-;   - A cloud animation is active, AND
-;   - The active player is in the same tile as the cloud (Player_X == Cloud_X && Player_Y == Cloud_Y)
-;
-; Patches the mid-screen BPLCON2 register changes in the copper list to make
-; the cloud (blitted on bitplanes) appear above the player sprite during the
-; scanline range where the cloud tile is rendered.
-;
-; Input:
-;   d0.w = tile Y position of the cloud (0..8, same as player Y)
-;
-; Calculation:
-;   - scanline_start = (Y * 24) + 44  (WINDOW_Y_START)
-;   - scanline_end   = (Y * 24) + 68  (WINDOW_Y_START + 24 pixels for one tile)
-;   - WAIT format: (vp<<8)|hp for low word, (ve<<8)|he|$0001 for high word
-;   - Patch cpCloudBPLCON2Start WAIT: ((scanline_start<<8)|0), $FFFF (wait past screen)
-;   - Patch cpCloudBPLCON2End WAIT:   ((scanline_end<<8)|0),   $FFFF (wait past screen)
-;
-; Destroys: d0-d4, a0
-;==============================================================================
-
-PatchCloudCopperBPLCON2:
-    ; Calculate scanline values from tile Y position
-    ; scanline_start = (Y * 24) + 44
-    move.w      d0,d1                   ; d1 = Y
-    mulu        #24,d1                  ; d1 = Y * 24 (pixels)
-    add.w       #WINDOW_Y_START,d1      ; d1 = scanline_start
- 
-    ; scanline_end = scanline_start + 24
-    move.w      d1,d2
-    add.w       #24,d2                  ; d2 = scanline_end
-
-    ; Patch cpCloudBPLCON2Start WAIT: ((scanline_start<<8)|0, ($FF<<8)|$FFFF)
-    move.w      d1,d0
-    lsl.w       #8,d0                   ; d0 = (scanline_start << 8) | 0
-
-    lea         cpTest,a0
-    add.l       #CP_CLOUD_START_OFFSET,a0
-    move.w      d0,(a0)                 ; patch WAIT low word
-    move.w      #$FFFF,2(a0)            ; patch WAIT high word: end condition (vertical > $FF, never reached)
-
-    ; Patch cpCloudBPLCON2End WAIT: ((scanline_end<<8)|0, ($FF<<8)|$FFFF)
-    move.w      d2,d0
-    lsl.w       #8,d0                   ; d0 = (scanline_end << 8) | 0
-
-    lea         cpTest,a0
-    add.l       #CP_CLOUD_END_OFFSET,a0
-    move.w      d0,(a0)                 ; patch WAIT low word
-    move.w      #$FFFF,2(a0)            ; patch WAIT high word: end condition (vertical > $FF, never reached)
-
-    ; Set flag for VBlank handler to restart Copper
-    ; (VBlank is the proper place to synchronize with Copper)
-    move.w      #1,CloudCopperRestartNeeded(a5)
-
-    rts
-
-
-;==============================================================================
-; ResetCloudCopperBPLCON2  -  Reset copper BPLCON2 switches to inactive state
-;
-; Called from ActionCloudActors when no cloud animations are active.
-; Resets the mid-screen BPLCON2 register changes in the copper list to a
-; state where they never trigger (WAIT values of $FFDF/$FFFE).
-;
-; Destroys: a0, d0
-;==============================================================================
-
-ResetCloudCopperBPLCON2:
-    ; Reset cpCloudBPLCON2Start
-    lea         cpTest,a0
-    add.l       #CP_CLOUD_START_OFFSET,a0
-    move.w      #CP_CLOUD_INACTIVE_LOW,(a0)
-    move.w      #CP_CLOUD_INACTIVE_HIGH,2(a0)
-
-    ; Reset cpCloudBPLCON2End
-    lea         cpTest,a0
-    add.l       #CP_CLOUD_END_OFFSET,a0
-    move.w      #CP_CLOUD_INACTIVE_LOW,(a0)
-    move.w      #CP_CLOUD_INACTIVE_HIGH,2(a0)
-
-    ; Set flag for VBlank handler to restart Copper
-    ; (VBlank is the proper place to synchronize with Copper)
-    move.w      #1,CloudCopperRestartNeeded(a5)
-
-    rts
-
-
 ;==============================================================================
 
 ActionMove:

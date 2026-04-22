@@ -94,10 +94,10 @@ cpPlanes:
     dc.w    BPL5PTH,0               ; bitplane 5 address high word (patched)
     dc.w    BPL5PTL,0               ; bitplane 5 address low  word (patched)
 
-; cpSprites  - patched by ClearSprites / ShowSprite to point at hardware sprite data.
+; cpSprites  - patched each frame by ShowSprite / ClearSprites.
 ; On the OCS/ECS Amiga there are 8 hardware sprite channels (SPR0..SPR7).
-; The player character uses SPR0-SPR3 (two attached pairs for 4-colour, 32px-wide display).
-; SPR4-SPR7 are pointed at NullSprite (a zero terminator) when not in use.
+;   SPR0-3  player character (two attached pairs, 24px wide, 16 colours)
+;   SPR4-7  unused (NullSprite)
 cpSprites:
     dc.w    SPR0PTH,0               ; sprite 0 data pointer high (patched)
     dc.w    SPR0PTL,0               ; sprite 0 data pointer low  (patched)
@@ -154,24 +154,6 @@ cpPal:
     dc.w    COLOR29,0               ; colour 29 (patched)
     dc.w    COLOR30,0               ; colour 30 (patched)
     dc.w    COLOR31,0               ; colour 31 (patched)
-
-; cpCloudBPLCON2  - Mid-screen priority switching for cloud death animations.
-;
-; When a cloud animation is active AND a player is in the same tile, we temporarily
-; lower sprite priority on the scanlines where the cloud is rendered, so the cloud
-; (blitted to bitplanes) appears above the player sprite.
-;
-; Two WAIT/MOVE pairs: one at cloud start scanline, one at cloud end scanline.
-; When no player/cloud overlap, WAITs are set to $FFDF/$FFFE (never matches).
-; Patched by ActionCloudActors each frame if Player_X == Cloud_X AND Player_Y == Cloud_Y.
-;
-cpCloudBPLCON2Start:
-    dc.w    $FFDF,$FFFE             ; WAIT (start): $FFDF/$FFFE = never matches (patched if player in cloud tile)
-    dc.w    BPLCON2,$00002           ; MOVE BPLCON2, $0000: bitplanes above sprites (cloud visible over sprite)
-
-cpCloudBPLCON2End:
-    dc.w    $FFDF,$FFFE             ; WAIT (end):   $FFDF/$FFFE = never matches (patched if player in cloud tile)
-    dc.w    BPLCON2,$0024           ; MOVE BPLCON2, $0024: restore sprites above bitplanes
 
     dc.l    COPPER_HALT             ; end-of-list marker 1 ($fffffffe)
     dc.l    COPPER_HALT             ; end-of-list marker 2 (belt-and-braces)

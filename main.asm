@@ -373,13 +373,6 @@ VBlankTick:
 
     addq.w     #1,TickCounter(a5)
 
-    ; Check if Copper restart is needed (for cloud animation BPLCON2 patches)
-    tst.w      CloudCopperRestartNeeded(a5)
-    beq        .skip_copper_restart
-    move.w     #0,COPJMP1(a6)                 ; restart copper from COP1LC
-    clr.w      CloudCopperRestartNeeded(a5)   ; clear flag
-.skip_copper_restart
-
     bsr        GameStatusRun
 
 .exit

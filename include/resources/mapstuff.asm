@@ -1756,6 +1756,7 @@ LevelIntroSetup:
     move.w      d3,StarOriginY(a5)
 
     ; --- Hide hardware player sprites: point all four SpritePtrs to NullSprite ---
+    ; Player is on SPR0-3 (cpSprites+SPRITE_00_OFFSET).
     move.l      #NullSprite,d4          ; d4 = NullSprite address (preserved across loop)
     move.l      d4,SpritePtrs(a5)
     move.l      d4,SpritePtrs+4(a5)
@@ -1763,7 +1764,7 @@ LevelIntroSetup:
     move.l      d4,SpritePtrs+12(a5)
 
     ; Patch the copper list sprite entries to NullSprite
-    lea         cpSprites,a0
+    lea         cpSprites+SPRITE_00_OFFSET,a0
     lea         SpritePtrs(a5),a1
     moveq       #4-1,d7
 .patch_copper
@@ -2367,12 +2368,13 @@ LevelSetup:
     jsr         (a0)                    ; fill WipeTileX and WipeTileY arrays
 
     ; Hide hardware player sprites (point all four SpritePtrs to NullSprite)
+    ; Player is on SPR0-3 (cpSprites+SPRITE_00_OFFSET).
     move.l      #NullSprite,d0
     move.l      d0,SpritePtrs(a5)
     move.l      d0,SpritePtrs+4(a5)
     move.l      d0,SpritePtrs+8(a5)
     move.l      d0,SpritePtrs+12(a5)
-    lea         cpSprites,a0
+    lea         cpSprites+SPRITE_00_OFFSET,a0
     lea         SpritePtrs(a5),a1
     moveq       #4-1,d7
 .patch_sprites

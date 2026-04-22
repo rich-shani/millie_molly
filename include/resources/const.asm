@@ -300,6 +300,18 @@ TILE_SCREEN_HEIGHT  = SCREEN_HEIGHT/TILE_HEIGHT ; 216/24 =  9 rows
 ;------------------------------------------------------------------------------
 SPRITE_SIZE         = 4+(TILE_HEIGHT*4)+4       ; 104 bytes per sprite structure
 
+; Hardware sprite channel assignment:
+;   SPR0-3  player character (two attached pairs, 24px wide, 16 colours)
+;   SPR4-7  unused (NullSprite)
+HW_FRAME_SIZE       = 4*SPRITE_SIZE             ; 416 bytes per frame (realsprites.bin)
+
+; Byte offsets into the cpSprites copper list block (8 bytes per channel pair: PTH+PTL).
+SPRITE_CH_SIZE      = 8                         ; bytes per sprite channel entry in copper list
+SPRITE_00_OFFSET    = 0*SPRITE_CH_SIZE          ; SPR0PTH/L  - player left  half (attached pair 0)
+SPRITE_02_OFFSET    = 2*SPRITE_CH_SIZE          ; SPR2PTH/L  - player right half (attached pair 1)
+SPRITE_04_OFFSET    = 4*SPRITE_CH_SIZE          ; SPR4PTH/L  - unused (NullSprite)
+SPRITE_06_OFFSET    = 6*SPRITE_CH_SIZE          ; SPR6PTH/L  - unused (NullSprite)
+
 
 ;------------------------------------------------------------------------------
 ; Default starting level (0-based index into levels.bin).
@@ -565,33 +577,4 @@ WIPE_CENTER_OUT     = 6
 WIPE_CENTER_IN      = 7
 
 
-;------------------------------------------------------------------------------
-; Copper list patch offsets for cloud death animation priority switching.
-;
-; The cpTest copper list contains two WAIT/MOVE pairs for dynamically switching
-; BPLCON2 register values to flip sprite/playfield priority when rendering cloud
-; death animations. This is only done when a player is in the same tile as the
-; cloud animation - otherwise the cloud is naturally rendered behind the player
-; sprite (on bitplanes vs hardware sprite), but there's no player to occlude it.
-;
-; The offsets are measured from the start of cpTest:
-;   - 272 bytes: cpCloudBPLCON2Start (FMODE through cpPal)
-;   - 280 bytes: cpCloudBPLCON2End
-;
-; Each WAIT/MOVE pair occupies 8 bytes:
-;   +0,+2  = WAIT instruction (2 words to patch: (vp<<8)|hp and (ve<<8)|he|$0001)
-;   +4     = MOVE BPLCON2 instruction (not patched, always $0000 or $0024)
-;
-; When no cloud/player overlap is active, the WAIT values are set to $FFDF/$FFFE
-; (never matches any visible scanline). When a cloud and player overlap, they are
-; patched to match the scanline range of the cloud animation tile.
-;
-; ActionCloudActors checks cloud tile position against active player tile position
-; (via PlayerPtrs pointer) and only patches copper if Player_X == Cloud_X AND
-; Player_Y == Cloud_Y, making sprite/bitplane priority switches efficient.
-;------------------------------------------------------------------------------
-CP_CLOUD_START_OFFSET   = 272                  ; offset of cpCloudBPLCON2Start WAIT instruction
-CP_CLOUD_END_OFFSET     = 280                  ; offset of cpCloudBPLCON2End WAIT instruction
-CP_CLOUD_INACTIVE_LOW   = $FFDF                ; WAIT low  word  when no player/cloud overlap
-CP_CLOUD_INACTIVE_HIGH  = $FFFE                ; WAIT high word  when no player/cloud overlap
 
