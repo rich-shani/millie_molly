@@ -398,9 +398,22 @@ TitleCopperSetup:
     addq.l      #4,a1                  ; advance to next copper COLOR entry
     dbra        d7,.cloop
 
-    ; Set explicit star layer colours (override whatever title.pal had for these slots)
-    move.w      #STAR_FAST_COLOR,cpTitlePal+STAR_FAST_PAL_OFF  ; COLOR08 = fast stars
-    move.w      #STAR_SLOW_COLOR,cpTitlePal+STAR_SLOW_PAL_OFF  ; COLOR16 = slow stars
+    ; Fill COLOR08-COLOR15 with the fast star colour so stars on plane 3 remain visible
+    ; over any logo pixels (planes 0-2 add bits 0-2, giving indices 8-15).
+    lea         cpTitlePal+STAR_FAST_PAL_OFF,a0    ; a0 -> value word of COLOR08
+    moveq       #8-1,d7
+.fastpalloop
+    move.w      #STAR_FAST_COLOR,(a0)
+    addq.l      #4,a0
+    dbra        d7,.fastpalloop
+
+    ; Fill COLOR16-COLOR31 with the slow star colour (plane 4, indices 16-31).
+    lea         cpTitlePal+STAR_SLOW_PAL_OFF,a0    ; a0 -> value word of COLOR16
+    moveq       #16-1,d7
+.slowpalloop
+    move.w      #STAR_SLOW_COLOR,(a0)
+    addq.l      #4,a0
+    dbra        d7,.slowpalloop
 
     rts
 
@@ -462,7 +475,6 @@ TitleRun:
     rts                                ; return immediately - stars not needed this frame
 
 .nostart
-    bsr         TitleCycleColours      ; update COLOR00-COLOR07 palette cycling
     bsr         TitleStarDraw          ; animate and blit both star layers
     rts
 
@@ -485,6 +497,20 @@ TitleRun:
 ;==============================================================================
 
 TitleStarDraw:
+    ; Erase both star planes before redrawing to prevent trails.
+    ; Two sequential D-only blits (minterm $00) zero-fill plane 3 then plane 4.
+    ; BLTDMOD skips the other 4 planes per row to stay within the target plane.
+    WAITBLIT
+    move.w      #$0100,BLTCON0(a6)                                          ; D only, minterm $00
+    move.w      #0,BLTCON1(a6)
+    move.l      #DisplayScreen+TITLE_SCREEN_WIDTH_BYTE*3,BLTDPT(a6)        ; plane 3 start
+    move.w      #TITLE_SCREEN_STRIDE-TITLE_SCREEN_WIDTH_BYTE,BLTDMOD(a6)   ; skip other planes
+    move.w      #(TITLE_SCREEN_HEIGHT<<6)|(TITLE_SCREEN_WIDTH_BYTE/2),BLTSIZE(a6)
+
+    WAITBLIT
+    move.l      #DisplayScreen+TITLE_SCREEN_WIDTH_BYTE*4,BLTDPT(a6)        ; plane 4 start
+    move.w      #(TITLE_SCREEN_HEIGHT<<6)|(TITLE_SCREEN_WIDTH_BYTE/2),BLTSIZE(a6)
+
     ; --- Fast star layer (plane 3, full speed + sine wobble) ---
     lea         TitleStars,a0
     moveq       #TITLE_STAR_COUNT-1,d7
