@@ -242,7 +242,7 @@ UndoMove:
 
     ; Redraw display: clean background, alive actors, then frozen player tile
     bsr         CopySaveToStatic           ; NonDisplayScreen -> DisplayScreen
-    bsr         DrawStaticActors           ; blit actor tiles into DisplayScreen
+    bsr         UndoDrawActors             ; draw actors via ActorList (see below)
 
     ; Redraw the frozen player's static tile (active player is a hardware sprite,
     ; updated automatically by ShowSprite each VBlank from the restored Player_X/Y)
@@ -292,4 +292,46 @@ RebuildActorList:
     dbra        d7,.scan
 
     bsr         SortActors                 ; sort by Y descending for correct draw order
+    rts
+
+
+;==============================================================================
+; UndoDrawActors  -  Draw all live actors into DisplayScreen after an undo
+;
+; Scans every slot in the flat Actors[] pool (all MAX_ACTORS entries) and blits
+; alive actors.  This is intentionally different from DrawStaticActors:
+;
+;   DrawStaticActors iterates only ActorCount slots from slot 0.  CleanActors
+;   (called on enemy kills) decrements ActorCount, so live actors sitting at
+;   higher slot indices are silently skipped — causing restored dirt to stay
+;   invisible until something else redraws it (enemies recover via AnimateEnemies
+;   each VBlank; static dirt never does).
+;
+;   This routine walks all MAX_ACTORS entries using a3, which PasteTile does NOT
+;   clobber (PasteTile clobbers a2; DrawStaticActors also uses a3 safely).
+;   No dependence on ActorCount or ActorList — every live slot is covered.
+;
+; On entry: a5 = Variables base, a6 = $dff000
+;==============================================================================
+
+UndoDrawActors:
+    lea         Actors(a5),a3
+    move.w      #MAX_ACTORS-1,d7
+
+.loop
+    tst.w       Actor_Status(a3)           ; alive?
+    beq         .skip
+
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    mulu        #24,d0
+    mulu        #24,d1
+    moveq       #0,d2
+    move.w      Actor_SpriteOffset(a3),d2
+    lea         DisplayScreen,a1
+    bsr         PasteTile                  ; clobbers a2 but not a3 — loop pointer safe
+
+.skip
+    add.w       #Actor_Sizeof,a3
+    dbra        d7,.loop
     rts
