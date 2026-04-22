@@ -259,5 +259,5 @@ cpTitlePal:
     dc.w    COLOR30,0               ; colour 30
     dc.w    COLOR31,0               ; colour 31
 
-    dc.l    COPPER_HALT             ; end-of-list marker 1
-    dc.l    COPPER_HALT             ; end-of-list marker 2
+; Gradient follows immediately in data_chip section (see main.asm after copperlists include).
+; It terminates cpTitle with its own COPPER_HALT after changing COLOR00 per scanline.

@@ -569,6 +569,11 @@ LevelCountRawEnd:
 
     include    "copperlists.asm"
 
+; Gradient copper sub-list: terminates cpTitle with COLOR00 changes per scanline.
+; Placed immediately after copperlists.asm so it is physically adjacent to the end
+; of cpTitle in Chip RAM.  cpTest has its own HALT and is unaffected.
+    include    "assets/gradient.s"
+
 RealSprites:
     incbin     "assets/realsprites.bin"
 

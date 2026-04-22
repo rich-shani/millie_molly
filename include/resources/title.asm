@@ -505,8 +505,8 @@ TitleStarDraw:
     add.w       d2,d2                              ; byte index
     lea         Sinus,a1
     move.w      (a1,d2.w),d2                       ; ±$7fff
-    asr.w       #8,d2                              ; ÷4096 in two steps (68000 max shift = 8)
-    asr.w       #4,d2                              ; → ±8 pixels
+    asr.w       #8,d2                              ; ÷512 in two steps (68000 max shift = 8)
+    asr.w       #1,d2                              ; → ±63 pixels
     add.w       d2,d1                              ; modulate blit Y
 
     bsr         BlitStar32
