@@ -150,14 +150,14 @@ PushedActor:          rs.l    1   ; pointer to the actor being pushed
 ActionCounter:        rs.w    1   ; push animation frame counter (0..PUSH_STEPS-1)
 
 ;------------------------------------------------------------------------------
-; Title screen
+; Title screen star layers
 ;
-; TitleStars - array of TITLE_STAR_COUNT (4) star records, each a word pair:
-;   word 0 = X position (pixel, wraps at 3*32)
-;   word 1 = Y position (pixel, wraps at TITLE_STAR_COUNT*32*3)
-;   Stars are rendered by BlitStar32 on plane 4 of DisplayScreen.
+; TitleStars     - fast layer (plane 3): X += 1/frame, Y += 1 every 2 frames.
+; TitleSlowStars - slow layer (plane 4): X += 1 every 2 frames, Y += 1 every 4 frames.
+; Each record is { word X, word Y }; both arrays animated by TitleStarDraw.
 ;------------------------------------------------------------------------------
-TitleStars:           rs.l    TITLE_STAR_COUNT    ; 4 star {X,Y} word pairs
+TitleStars:           rs.l    TITLE_STAR_COUNT    ; fast stars {X,Y} word pairs (plane 3)
+TitleSlowStars:       rs.l    TITLE_STAR_COUNT    ; slow stars {X,Y} word pairs (plane 4)
 
 ;------------------------------------------------------------------------------
 ; Fallen actor list

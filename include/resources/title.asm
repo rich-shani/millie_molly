@@ -8,14 +8,18 @@
 ;
 ; The title screen uses a full-screen DisplayScreen buffer with the same 5-plane
 ; format as the game screen, but wider (TITLE_SCREEN_WIDTH = 336+32 pixels) to
-; provide room for the horizontally-scrolling star animation on plane 4.
+; provide room for the horizontally-scrolling star animations.
 ;
 ; The title logo (title_i.raw) is a 3-plane, 208x88 pixel bitmap.  TitleSetup
 ; copies it into the centre of the first three bitplanes of DisplayScreen.
 ;
-; Four 32x32 star sprites (Star32, from star32.raw) are blitted onto bitplane 4
-; of DisplayScreen each frame by BlitStar32.  They scroll right and down slowly,
-; wrapping around when they reach the edge.
+; Two parallax star layers are blitted each frame by TitleStarDraw:
+;   Fast layer (plane 3): four stars at full speed (X+1/frame, Y+1 every 2 frames).
+;   Slow layer (plane 4): four stars at half speed (X+1 every 2 frames, Y+1 every 4).
+; BlitStar32 handles plane 3; BlitStar32Slow handles plane 4.
+;
+; TitleCycleColours writes 8 colour values from TitleCycleTable to COLOR00-COLOR07
+; in the copper list every VBlank, using index (TickCounter & 7) for an 8-frame cycle.
 ;
 ; Coordinate system:
 ;   TITLE_SCREEN_WIDTH  = 368 pixels  (336 game width + 32 for star wrap)
@@ -56,12 +60,14 @@ TITLE_LOGO_OFFSET       = ((336/2)-(TITLE_WIDTH/2))/8
 ;   3. Set ScreenMemEnd to -1 (signals that the screen memory is valid).
 ;   4. Enable DMA (BASE_DMA).
 ;   5. Advance GameStatus to TitleRun (1).
-;   6. Initialise the four star positions in TitleStars:
+;   6. Initialise the fast star positions in TitleStars (plane 3 layer):
 ;      - Star 0: X=0,        Y=0
 ;      - Star 1: X=3*32/2,   Y=3*32
 ;      - Star 2: X=3*32,     Y=6*32
 ;      - Star 3: X=3*32*3/2, Y=9*32
 ;      (each star spaced by 3*32/2 horizontally and 3*32 vertically)
+;      Initialise the slow star positions in TitleSlowStars (plane 4 layer)
+;      with a 24-pixel / 192-pixel offset for visual variety.
 ;   7. Copy the title logo from TitleRaw (in Chip RAM data section) into the
 ;      first three planes of DisplayScreen at the centred position.
 ;      The copy handles the fact that the logo planes are tightly packed while
@@ -81,20 +87,34 @@ TitleSetup:
 
     addq.w      #GAME_TITLE,GameStatus(a5)      ; advance to state 1 (TitleRun)
 
-    ; Initialise four star X/Y positions in TitleStars[] array.
+    ; Initialise fast star positions in TitleStars[] (plane 3 layer).
     ; Each star entry is two words: { X word, Y word }.
-    ; They are spaced apart so they do not overlap initially.
+    ; Stars are spaced so they do not overlap initially.
     lea         TitleStars,a0          ; a0 -> TitleStars word-pair array
-    moveq       #TITLE_STAR_COUNT-1,d7 ; 4 stars, loop count-1 for DBRA
+    moveq       #TITLE_STAR_COUNT-1,d7
     moveq       #0,d0                  ; starting X = 0
     moveq       #0,d1                  ; starting Y = 0
 
 .starloop
     move.w      d0,(a0)+               ; store star X
     move.w      d1,(a0)+               ; store star Y
-    add.w       #(3*32)/2,d0           ; next star X: shift right by half a star-cell (48)
-    add.w       #3*32,d1               ; next star Y: shift down by one star-cell (96)
+    add.w       #(3*32)/2,d0           ; X: +48 per star
+    add.w       #3*32,d1               ; Y: +96 per star
     dbra        d7,.starloop
+
+    ; Initialise slow star positions in TitleSlowStars[] (plane 4 layer).
+    ; Offset by (24,192) from the fast layer for visual variety.
+    lea         TitleSlowStars,a0
+    moveq       #TITLE_STAR_COUNT-1,d7
+    move.w      #24,d0                 ; start X offset from fast layer
+    move.w      #192,d1                ; start Y offset
+
+.slowstarloop
+    move.w      d0,(a0)+
+    move.w      d1,(a0)+
+    add.w       #(3*32)/2,d0
+    add.w       #3*32,d1
+    dbra        d7,.slowstarloop
 
     ; Copy the title logo (TitleRaw) into DisplayScreen.
     ; TitleRaw is stored as 3 planes, each row TITLE_WIDTH_BYTE bytes wide.
@@ -174,6 +194,20 @@ TitleSetup:
 STAR_BLIT_SIZE      = (32<<6)|2        ; BLTSIZE: 32 rows, 2 words wide
 STAR_BLIT_DEST_MOD  = TITLE_SCREEN_STRIDE-4    ; dest modulo: skip back to same plane next row
 
+; Byte offset from row start to the plane used by each star layer (guard -4 included):
+;   Plane 3 (BPL4, bit 3 of colour index → COLOR08): fast star layer
+;   Plane 4 (BPL5, bit 4 of colour index → COLOR16): slow star layer
+STAR_PLANE3_OFFSET  = TITLE_SCREEN_WIDTH_BYTE*3-4
+STAR_PLANE4_OFFSET  = TITLE_SCREEN_WIDTH_BYTE*4-4
+
+; Copper palette slot offsets for each star layer's colour register (data word at +2)
+STAR_FAST_PAL_OFF   = 2+(8*4)         ; COLOR08 data word in cpTitlePal
+STAR_SLOW_PAL_OFF   = 2+(16*4)        ; COLOR16 data word in cpTitlePal
+
+; Colour values (RGB444) for each star layer
+STAR_FAST_COLOR     = $fe8            ; fast layer: warm near-white (bright foreground stars)
+STAR_SLOW_COLOR     = $46c            ; slow layer: dim cool blue   (distant background stars)
+
 BlitStar32:
     PUSHALL
 
@@ -187,12 +221,11 @@ BlitStar32:
     cmp.w       #TITLE_SCREEN_WIDTH,d0
     bcc         .exit
 
-    ; Calculate destination byte offset into DisplayScreen plane 4:
-    ;   d2 = (x / 8) + TITLE_SCREEN_WIDTH_BYTE*3 - 4
-    ;        (the -4 accounts for the 2-word blit width: blitter starts 4 bytes earlier)
+    ; Calculate destination byte offset into DisplayScreen plane 3 (fast star layer):
+    ;   d2 = (x / 8) + STAR_PLANE3_OFFSET
     move.w      d0,d2
     lsr.w       #3,d2                              ; d2 = X / 8 (byte column)
-    add.l       #(TITLE_SCREEN_WIDTH_BYTE*3)-4,d2  ; add plane 4 start offset
+    add.l       #STAR_PLANE3_OFFSET,d2             ; add plane 3 start offset
 
     ; Add Y row offset:  d3 = Y * TITLE_SCREEN_STRIDE
     move.w      d1,d3
@@ -246,6 +279,73 @@ BlitStar32:
 
 
 ;==============================================================================
+; BlitStar32Slow  -  Blit a 32x32 star onto plane 4 of DisplayScreen (slow layer)
+;
+; Identical to BlitStar32 but targets plane 4 (BPL5, bit 4 of colour index).
+; Used for the parallax slow star layer whose colour (COLOR16 in background)
+; differs from the fast layer (plane 3, COLOR08 in background).
+;
+; On entry / register use / masks: same as BlitStar32.
+;==============================================================================
+
+BlitStar32Slow:
+    PUSHALL
+
+    cmp.w       #TITLE_SCREEN_HEIGHT,d1
+    bcc         .exits
+
+    sub.w       #32,d1
+
+    cmp.w       #TITLE_SCREEN_WIDTH,d0
+    bcc         .exits
+
+    move.w      d0,d2
+    lsr.w       #3,d2
+    add.l       #STAR_PLANE4_OFFSET,d2
+
+    move.w      d1,d3
+    muls        #TITLE_SCREEN_STRIDE,d3
+    add.l       d3,d2
+
+    add.l       #DisplayScreen,d2
+
+    move.w      d0,d3
+    and.w       #$f,d3
+    beq         .blitas
+
+    ror.w       #4,d3
+    or.w        #$9f0,d3
+
+    WAITBLIT
+    move.w      d3,BLTCON0(a6)
+    move.w      #0,BLTCON1(a6)
+    move.l      #Star32,BLTAPT(a6)
+    move.l      d2,BLTDPT(a6)
+    move.l      #$ffff0000,BLTAFWM(a6)
+    move.w      #-2,BLTAMOD(a6)
+    move.w      #STAR_BLIT_DEST_MOD-2,BLTDMOD(a6)
+    move.w      #STAR_BLIT_SIZE+1,BLTSIZE(a6)
+    WAITBLIT
+    bra         .exits
+
+.blitas
+    WAITBLIT
+    move.w      #$9f0,BLTCON0(a6)
+    move.w      #0,BLTCON1(a6)
+    move.l      #Star32,BLTAPT(a6)
+    move.l      d2,BLTDPT(a6)
+    move.l      #-1,BLTAFWM(a6)
+    move.w      #0,BLTAMOD(a6)
+    move.w      #STAR_BLIT_DEST_MOD,BLTDMOD(a6)
+    move.w      #STAR_BLIT_SIZE,BLTSIZE(a6)
+    WAITBLIT
+
+.exits
+    POPALL
+    rts
+
+
+;==============================================================================
 ; TitleCopperSetup  -  Configure the title screen copper list
 ;
 ; Patches cpTitlePlanes with the addresses of DisplayScreen's five bitplanes
@@ -279,8 +379,6 @@ TitleCopperSetup:
     dbra        d7,.ploop
 
     ; Copy title palette from TitlePal into the copper palette section.
-    ; TitlePal is 32 words for the logo (3-plane) plus extra entries for star colours
-    ; on the upper 16 colour registers.
     lea         TitlePal,a0
     lea         cpTitlePal,a1
     moveq       #32-1,d7               ; 32 colour entries
@@ -289,6 +387,10 @@ TitleCopperSetup:
     move.w      (a0)+,2(a1)            ; write colour value into copper MOVE data word
     addq.l      #4,a1                  ; advance to next copper COLOR entry
     dbra        d7,.cloop
+
+    ; Set explicit star layer colours (override whatever title.pal had for these slots)
+    move.w      #STAR_FAST_COLOR,cpTitlePal+STAR_FAST_PAL_OFF  ; COLOR08 = fast stars
+    move.w      #STAR_SLOW_COLOR,cpTitlePal+STAR_SLOW_PAL_OFF  ; COLOR16 = slow stars
 
     rts
 
@@ -350,79 +452,157 @@ TitleRun:
     rts                                ; return immediately - stars not needed this frame
 
 .nostart
-    bsr         TitleStarDraw          ; animate and blit the four stars
+    bsr         TitleCycleColours      ; update COLOR00-COLOR07 palette cycling
+    bsr         TitleStarDraw          ; animate and blit both star layers
     rts
 
 
 ;==============================================================================
-; TitleStarDraw  -  Animate and blit all four stars
+; TitleStarDraw  -  Animate and blit both parallax star layers
 ;
-; Iterates through the four star records in TitleStars[].
-; Each record is { word X, word Y }.
+; Fast layer (TitleStars, plane 3):
+;   X += 1 every frame; Y += 1 every 2 frames (bit 0 of TickCounter = 0).
 ;
-; Per star each frame:
-;   1. Blit the star at 4 equally-spaced horizontal positions across the screen:
-;      X, X+(3*32), X+(6*32), X+(9*32)  - four copies of the 32x32 graphic.
-;   2. Move the star right by 1 pixel per frame: X += 1.
-;   3. Every other frame (TickCounter AND 1 = 0): move down by 1 pixel: Y += 1.
-;   4. Wrap X when it reaches 3*32 (96): X -= 3*32.
-;   5. Wrap Y when it reaches TITLE_STAR_COUNT*32*3: Y -= TITLE_STAR_COUNT*32*3.
+; Slow layer (TitleSlowStars, plane 4):
+;   X += 1 every 2 frames (bit 0 of TickCounter = 0);
+;   Y += 1 every 4 frames (bits 1:0 of TickCounter = 00).
 ;
-; The four horizontal copies fill the 3*32*4 = 384 pixel-wide star band that
-; scrolls across the 368-pixel screen.  The wrap logic ensures seamless repeat.
-;
-; BlitStar32 handles the actual blit (with shift/mask as needed).
+; Both layers blit 4 horizontally-tiled copies of Star32, each 3*32 pixels apart.
+; Wrap: X at 3*32 (96), Y at TITLE_STAR_COUNT*32*3 (384).
 ;==============================================================================
 
 TitleStarDraw:
-    lea         TitleStars,a0          ; a0 -> first star record
-    moveq       #TITLE_STAR_COUNT-1,d7 ; 4 stars
+    ; --- Fast star layer (plane 3, full speed) ---
+    lea         TitleStars,a0
+    moveq       #TITLE_STAR_COUNT-1,d7
 
-.starloop
-    move.w      (a0),d0                ; d0 = star X
-    move.w      2(a0),d1               ; d1 = star Y
+.fastloop
+    move.w      (a0),d0
+    move.w      2(a0),d1
 
-    ; Blit 4 copies of the star horizontally, each 3*32 pixels apart
-    bsr         BlitStar32             ; copy 1 at (X, Y)
-    add.w       #3*32,d0               ; shift X right one star-period
-    bsr         BlitStar32             ; copy 2
+    bsr         BlitStar32
     add.w       #3*32,d0
-    bsr         BlitStar32             ; copy 3
+    bsr         BlitStar32
     add.w       #3*32,d0
-    bsr         BlitStar32             ; copy 4
+    bsr         BlitStar32
+    add.w       #3*32,d0
+    bsr         BlitStar32
 
-    ; Update star position for next frame
     move.w      TickCounter(a5),d5
     addq.w      #1,(a0)                ; X += 1 every frame
-    and.w       #1,d5                  ; test TickCounter bit 0
-    beq         .skipy
-    addq.w      #1,2(a0)               ; Y += 1 every other frame (slower vertical scroll)
-.skipy
+    and.w       #1,d5
+    beq         .fastskipy
+    addq.w      #1,2(a0)               ; Y += 1 every other frame
+.fastskipy
 
-    ; Wrap X
-    cmp.w       #3*32,(a0)             ; X >= 96?
-    bcs         .nowrapx
-    sub.w       #3*32,(a0)             ; X -= 96
-.nowrapx
+    cmp.w       #3*32,(a0)
+    bcs         .fastnowrapx
+    sub.w       #3*32,(a0)
+.fastnowrapx
 
-    ; Wrap Y
-    cmp.w       #TITLE_STAR_COUNT*32*3,2(a0)   ; Y >= 384?
-    bcs         .nowrapy
-    sub.w       #TITLE_STAR_COUNT*32*3,2(a0)   ; Y -= 384
-.nowrapy
+    cmp.w       #TITLE_STAR_COUNT*32*3,2(a0)
+    bcs         .fastnowrapy
+    sub.w       #TITLE_STAR_COUNT*32*3,2(a0)
+.fastnowrapy
 
-    addq.w      #4,a0                  ; advance to next star record (2 words = 4 bytes)
-    dbra        d7,.starloop
+    addq.w      #4,a0
+    dbra        d7,.fastloop
+
+    ; --- Slow star layer (plane 4, half speed) ---
+    lea         TitleSlowStars,a0
+    moveq       #TITLE_STAR_COUNT-1,d7
+
+.slowloop
+    move.w      (a0),d0
+    move.w      2(a0),d1
+
+    bsr         BlitStar32Slow
+    add.w       #3*32,d0
+    bsr         BlitStar32Slow
+    add.w       #3*32,d0
+    bsr         BlitStar32Slow
+    add.w       #3*32,d0
+    bsr         BlitStar32Slow
+
+    move.w      TickCounter(a5),d5
+    and.w       #1,d5                  ; X += 1 every 2 frames (bit 0 = 0)
+    bne         .slowskipx
+    addq.w      #1,(a0)
+.slowskipx
+
+    move.w      TickCounter(a5),d5
+    and.w       #3,d5                  ; Y += 1 every 4 frames (bits 1:0 = 0)
+    bne         .slowskipy
+    addq.w      #1,2(a0)
+.slowskipy
+
+    cmp.w       #3*32,(a0)
+    bcs         .slownowrapx
+    sub.w       #3*32,(a0)
+.slownowrapx
+
+    cmp.w       #TITLE_STAR_COUNT*32*3,2(a0)
+    bcs         .slownowrapy
+    sub.w       #TITLE_STAR_COUNT*32*3,2(a0)
+.slownowrapy
+
+    addq.w      #4,a0
+    dbra        d7,.slowloop
 
     rts
 
 
-;------------------------------------------------------------------------------
-; Leftover per-star X/Y variables (no longer used; star state is now stored
-; directly in TitleStars[] in the Variables block).
-;------------------------------------------------------------------------------
-StarX:
-    dc.w        0
+;==============================================================================
+; TitleCycleColours  -  Slowly cycle the title logo palette (COLOR01-COLOR07)
+;
+; Called from TitleRun every VBlank.  Advances the cycle index every 8 frames
+; (lsr.w #3 on TickCounter) so one full 8-step cycle takes ~1.28s at 50Hz —
+; a slow, readable glow rather than a fast flash.
+;
+; COLOR00 (background) is intentionally NOT written; only the 7 logo colours
+; (COLOR01-COLOR07) are updated.  The copper entry pointer starts at cpTitlePal+4
+; and the table pointer at TitleCycleTable+2 to skip the placeholder word.
+;
+; Each cpTitlePal entry is 4 bytes: { reg_word (at 0), colour_word (at +2) }.
+; Register usage: d0, d7, a0, a1 (all scratch).
+;==============================================================================
 
-StarY:
-    dc.w        0
+TitleCycleColours:
+    move.w      TickCounter(a5),d0
+    lsr.w       #3,d0                  ; advance index every 8 frames (~1.3s per full cycle)
+    and.w       #7,d0                  ; 8-frame cycle index
+    lsl.w       #4,d0                  ; * 16 bytes (8 words per frame, power-of-2 stride)
+    lea         TitleCycleTable+2,a0   ; +2: skip unused COLOR00 placeholder per frame
+    add.w       d0,a0                  ; a0 -> COLOR01-COLOR07 values for this frame
+    lea         cpTitlePal+4,a1        ; start at COLOR01 copper entry (skip COLOR00 background)
+    moveq       #7-1,d7
+
+.cloop
+    move.w      (a0)+,2(a1)            ; write colour value to copper MOVE data word
+    addq.l      #4,a1                  ; next copper COLOR entry (4 bytes: reg + data)
+    dbra        d7,.cloop
+
+    rts
+
+
+;==============================================================================
+; TitleCycleTable  -  8-frame × 8-word palette cycle for the title logo
+;
+; Indexed by ((TickCounter >> 3) & 7); full cycle ≈ 1.28s at 50Hz.
+; Each row is 8 RGB444 words.  Entry 0 of each row is a placeholder ($000)
+; and is never written to the copper — TitleCycleColours skips it (+2 offset)
+; and always starts at COLOR01, leaving COLOR00 (background) unchanged.
+; Colours in entries 1-7 (COLOR01-COLOR07) pulse through a blue wave,
+; keeping the logo readable throughout the full cycle.
+;==============================================================================
+
+TitleCycleTable:
+    ; entry[0] = unused placeholder; entries[1-7] = COLOR01-COLOR07
+    dc.w    $000,$22c,$44e,$66f,$88f,$aaf,$ccf,$fff   ; frame 0 - brightest
+    dc.w    $000,$22a,$22c,$44e,$66f,$88f,$aaf,$ccf   ; frame 1
+    dc.w    $000,$228,$22a,$22c,$44e,$66f,$88f,$aaf   ; frame 2
+    dc.w    $000,$226,$228,$22a,$22c,$44e,$66f,$88f   ; frame 3
+    dc.w    $000,$224,$226,$228,$22a,$22c,$44e,$66f   ; frame 4 - dimmest
+    dc.w    $000,$226,$228,$22a,$22c,$44e,$66f,$88f   ; frame 5
+    dc.w    $000,$228,$22a,$22c,$44e,$66f,$88f,$aaf   ; frame 6
+    dc.w    $000,$22a,$22c,$44e,$66f,$88f,$aaf,$ccf   ; frame 7
