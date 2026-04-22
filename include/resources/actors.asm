@@ -46,6 +46,7 @@ InitGameObjects:
     move.l      a0,ActorSlotPtr(a5)
 
     ; Zero the entire actor pool before use
+    lea         Actors(a5),a0              ; start of Actors[], not ActorList
     move.l      #Actor_Sizeof*MAX_ACTORS,d7
     bsr         TurboClear                 ; clear Actor_Sizeof * MAX_ACTORS bytes
 
