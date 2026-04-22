@@ -1,0 +1,259 @@
+
+;==============================================================================
+; MILLIE AND MOLLY - AMIGA PORT
+; variables.asm  -  Global Variable Block (RS layout in Fast RAM)
+;==============================================================================
+;
+; This file defines the layout of the "Variables" block allocated in Fast RAM
+; (section mem_fast, bss).  It uses RS directives so that the same symbol names
+; work as both structure offsets AND as absolute addresses (since "Variables" is
+; a real label at assembly time, and each RS name ends up being used as an
+; offset from A5 which is permanently loaded with the Variables address).
+;
+; Convention:  a5 = Variables base pointer throughout the entire program.
+;              All fields are accessed as  FieldName(a5).
+;
+; RSRESET is used once at the top; each rs.x directive advances the RS counter
+; and assigns the current count to the label.  rs.w 0 at the end captures
+; the total byte count in Variables_sizeof, which is used to reserve the BSS
+; block with  "Variables: ds.b Variables_sizeof".
+;
+;==============================================================================
+
+                      rsreset
+
+;------------------------------------------------------------------------------
+; Level management
+;------------------------------------------------------------------------------
+LevelId:              rs.w    1   ; current level number (0-based index into levels.bin)
+LevelPtr:             rs.l    1   ; pointer to current level's raw data in LevelData
+
+;------------------------------------------------------------------------------
+; Tile grid maps
+;
+; GameMapCeiling - the solid top border row (WALL_PAPER_WIDTH bytes).
+;                  Always all BLOCK_SOLID; never modified at runtime.
+; GameMap        - the live game map (WALL_PAPER_SIZE bytes = 14*9 = 126 bytes).
+;                  Starts as a copy of the level data expanded into the border
+;                  frame.  Modified during play as players/actors move and
+;                  blocks are destroyed or pushed.
+; WallpaperCheat - a hidden extra row of TILE_BACK bytes at the bottom edge,
+;                  used to give the renderer a clean termination row.
+; WallpaperWork  - the tile-type map used by DrawWalls to select wall graphics.
+;                  Derived from GameMap by WallPaperWalls; each byte holds a
+;                  TILE_xxx value rather than a BLOCK_xxx value.
+; WallpaperLadders - overlay map for ladder tile indices.  Zero = no ladder.
+;                    Built by WallpaperMakeLadders.
+; WallpaperShadows - overlay shadow flags.  Non-zero = draw a shadow here.
+;                    Built by WallpaperMakeShadows.  The value encodes which
+;                    of 16 possible shadow shapes to draw.
+;------------------------------------------------------------------------------
+GameMapCeiling:       rs.b    WALL_PAPER_WIDTH    ; top border row (14 bytes)
+GameMap:              rs.b    WALL_PAPER_SIZE     ; live game map  (126 bytes)
+WallpaperCheat:       rs.b    WALL_PAPER_WIDTH    ; bottom dummy row (14 bytes)
+WallpaperWork:        rs.b    WALL_PAPER_SIZE     ; rendered wall tile types
+RandomSeed:           rs.l    1   ; LFSR random number seed (seeded from LevelId)
+WallpaperLadders:     rs.b    WALL_PAPER_SIZE     ; ladder tile overlay (0=none)
+WallpaperShadows:     rs.b    WALL_PAPER_SIZE     ; shadow shape flags  (0=none)
+
+;------------------------------------------------------------------------------
+; Asset management
+;------------------------------------------------------------------------------
+TilesetPtr:           rs.l    1   ; pointer to the decompressed TileSet in Chip RAM
+AssetSet:             rs.w    1   ; current tileset variant index (0-4, from LevelAssetSet)
+
+;------------------------------------------------------------------------------
+; Game flow
+;------------------------------------------------------------------------------
+MoveId:               rs.w    1   ; incremented each time a player makes a move
+
+;------------------------------------------------------------------------------
+; Player records
+;
+; PlayerPtrs - two longword pointers:
+;   PlayerPtrs+0 : pointer to the ACTIVE  player (a4 is loaded from here)
+;   PlayerPtrs+4 : pointer to the FROZEN  player
+;   Swapping these two pointers is how PlayerSwitch changes the active character.
+;
+; Millie / Molly - the actual Player structure data (Player_Sizeof bytes each).
+;   Millie uses sprite frames starting at offset 48 in RealSprites.
+;   Molly  uses sprite frames starting at offset  0 in RealSprites.
+;------------------------------------------------------------------------------
+PlayerPtrs:           rs.l    2   ; [0]=active player ptr, [1]=frozen player ptr
+Millie:               rs.b    Player_Sizeof   ; Millie's player structure
+Molly:                rs.b    Player_Sizeof   ; Molly's  player structure
+
+;------------------------------------------------------------------------------
+; Game state machine
+;------------------------------------------------------------------------------
+GameStatus:           rs.w    1   ; 0=TitleSetup, 1=TitleRun, 2=GameRun, 3=LevelWipe, 4=LevelHold, 5=LevelReveal
+
+;------------------------------------------------------------------------------
+; Display buffers
+;
+; ScreenPtrs holds pointers to the two display buffers (Screen1 / Screen2)
+; for double-buffering.  Currently Screen1 is used for both entries (single
+; buffer mode) - double-buffering is partially implemented.
+;------------------------------------------------------------------------------
+ScreenPtrs:           rs.l    2   ; [0]=front buffer, [1]=back buffer pointers
+
+;------------------------------------------------------------------------------
+; Hardware sprite pointers
+;
+; 8 longword pointers, one per hardware sprite channel (SPR0..SPR7).
+; Updated each VBlank by ShowSprite and then copied into the copper list
+; sprite pointer entries (cpSprites) so that Agnus fetches the correct data.
+; Sprites 0/1 = left half of player, 2/3 = right half.  Sprites 4-7 unused.
+;------------------------------------------------------------------------------
+SpritePtrs:           rs.l    8   ; 8 sprite data pointers
+
+;------------------------------------------------------------------------------
+; Actor pool
+;
+; ActorCount - number of active actors currently in the pool (updated by
+;              CleanActors after kills).
+; Actors     - the flat actor structure array.  Actor_Sizeof bytes per slot,
+;              MAX_ACTORS slots = MAP_SIZE = 88 slots maximum.
+;              Always accessed via the sorted ActorList pointer array.
+;------------------------------------------------------------------------------
+ActorCount:           rs.w    1   ; number of live actors
+Actors:               rs.b    Actor_Sizeof*MAX_ACTORS  ; actor pool (88 * Actor_Sizeof bytes)
+
+;------------------------------------------------------------------------------
+; Timing and input
+;------------------------------------------------------------------------------
+TickCounter:          rs.w    1   ; VBlank counter, incremented every frame (~50Hz PAL)
+ControlsTrigger:      rs.b    1   ; one-shot bits: set on the frame a key was first pressed
+ControlsHold:         rs.b    1   ; continuous bits: set for every frame a key is held
+
+;------------------------------------------------------------------------------
+; Per-frame movement flags
+;------------------------------------------------------------------------------
+PlayerMoved:          rs.w    1   ; non-zero if the active player moved this frame
+PlayerCount:          rs.w    1   ; number of player characters initialised for this level
+
+;------------------------------------------------------------------------------
+; Level completion / action status
+;------------------------------------------------------------------------------
+LevelComplete:        rs.w    1   ; set to 1 when all enemies are destroyed
+LevelCompleteHold:    rs.w    1   ; countdown to 0 before transition starts; 0 = not yet triggered
+ActionStatus:         rs.w    1   ; current action state: ACTION_IDLE/MOVE/FALL/PLAYERPUSH
+
+;------------------------------------------------------------------------------
+; Push-block action state
+;
+; PushedActor   - pointer to the actor struct of the block being pushed.
+;                 Valid only while ActionStatus = ACTION_PLAYERPUSH.
+; ActionCounter - frame counter for the current push animation.
+;------------------------------------------------------------------------------
+PushedActor:          rs.l    1   ; pointer to the actor being pushed
+ActionCounter:        rs.w    1   ; push animation frame counter (0..PUSH_STEPS-1)
+
+;------------------------------------------------------------------------------
+; Title screen star layers
+;
+; TitleStars     - fast layer (plane 3): X += 1/frame, Y += 1 every 2 frames.
+; TitleSlowStars - slow layer (plane 4): X += 1 every 2 frames, Y += 1 every 4 frames.
+; Each record is { word X, word Y }; both arrays animated by TitleStarDraw.
+;------------------------------------------------------------------------------
+TitleStars:           rs.l    TITLE_STAR_COUNT    ; fast stars {X,Y} word pairs (plane 3)
+TitleSlowStars:       rs.l    TITLE_STAR_COUNT    ; slow stars {X,Y} word pairs (plane 4)
+
+;------------------------------------------------------------------------------
+; Fallen actor list
+;
+; FallenActors      - array of actor pointers for actors that are currently
+;                     in a fall animation (Actor_HasFalled set).  Filled by
+;                     ActorFallAll, processed by ActionFallActors each frame.
+; FallenActorsCount - number of valid entries in FallenActors.
+;------------------------------------------------------------------------------
+FallenActors:         rs.l    MAP_SIZE    ; up to 88 pointers (one per map cell)
+FallenActorsCount:    rs.w    1           ; number of currently-falling actors
+
+;------------------------------------------------------------------------------
+; Pre-computed blitter clear masks
+;
+; ClearMasks holds 16 longword mask values (one per possible X sub-tile pixel
+; offset 0..15) used by ClearActor to cleanly erase an actor from DisplayScreen.
+; Built at startup by CreateClearMasks.
+; Indexed as:  (a2, d1.w*4)  where d1 = d0 AND $f  (pixel offset mod 16).
+;------------------------------------------------------------------------------
+ClearMasks:           rs.l    TILE_WIDTH  ; 24 longs (only 16 used; TILE_WIDTH = 24)
+
+;------------------------------------------------------------------------------
+; Sorted actor pointer list
+;
+; ActorSlotPtr - write pointer into ActorList, advanced as actors are allocated
+;                by GetActorSlot.  Reset to &ActorList at the start of each level.
+; ActorList    - array of longword pointers to active Actor structures, sorted
+;                by Y position (largest Y first) by SortActors so that actors
+;                closer to the bottom are drawn last (i.e. on top).
+;------------------------------------------------------------------------------
+ActorSlotPtr:         rs.l    1           ; current write pointer into ActorList
+ActorList:            rs.l    MAP_SIZE    ; sorted actor pointer array (88 entries max)
+
+;------------------------------------------------------------------------------
+; Star animation state (shared by level intro and player-switch transition)
+;
+; StarOriginX/Y  - current tile position of the large travelling star
+; StarTargetX/Y  - destination tile (Molly's start / frozen player's tile)
+; IntroTick      - countdown to next step (INTRO_STEP_TICKS..1; step at 0)
+; IntroDone      - 0 = travelling, hold_ticks..1 = holding at target, triggers end at 1
+; IntroWriteIdx  - next slot index to write in the circular trail pool
+; StarAnimContext - 0 = level intro (ACTION_INTRO), 1 = player switch (ACTION_SWITCH)
+; IntroTrailX/Y  - tile position of each trail particle (INTRO_TRAIL_MAX slots)
+; IntroTrailLife - remaining life of each trail particle (0 = inactive)
+;------------------------------------------------------------------------------
+StarOriginX:          rs.w    1
+StarOriginY:          rs.w    1
+StarTargetX:          rs.w    1
+StarTargetY:          rs.w    1
+IntroTick:            rs.w    1
+IntroDone:            rs.w    1
+IntroWriteIdx:        rs.w    1
+StarAnimContext:      rs.w    1
+IntroTrailX:          rs.w    INTRO_TRAIL_MAX
+IntroTrailY:          rs.w    INTRO_TRAIL_MAX
+IntroTrailLife:       rs.w    INTRO_TRAIL_MAX
+
+
+;------------------------------------------------------------------------------
+; Cloud death animation actor list
+;
+; CloudActors      - array of actor pointers for actors currently playing a
+;                   cloud death animation (Actor_CloudTick > 0).  Filled by
+;                   PlayerKillActor; processed by ActionCloudActors each frame.
+; CloudActorsCount - number of valid entries in CloudActors (never compacted;
+;                   entries with CloudTick=0 are skipped by the processor).
+;------------------------------------------------------------------------------
+CloudActors:          rs.l    MAP_SIZE    ; up to 88 cloud animation actor pointers
+CloudActorsCount:     rs.w    1           ; number of actors ever added (reset at level load)
+
+;------------------------------------------------------------------------------
+; Level wipe transition state
+;
+; WipePattern    - chosen effect index (0..NUM_WIPE_PATTERNS-1)
+; WipeTilesDone  - tiles blitted black so far; incremented by WIPE_SPEED each frame
+; WipeHoldTick   - hold countdown after all tiles done; DrawMap fires when 0
+; WipeTileX/Y    - WALL_PAPER_SIZE-byte arrays of tile coords in wipe order
+;                  filled by LevelSetup before GameStatus becomes LEVEL_WIPE
+;------------------------------------------------------------------------------
+WipePattern:          rs.w    1
+WipeTilesDone:        rs.w    1
+WipeHoldTick:         rs.w    1
+WipeTileX:            rs.b    WALL_PAPER_SIZE
+WipeTileY:            rs.b    WALL_PAPER_SIZE
+
+;------------------------------------------------------------------------------
+; Undo / rewind snapshot buffer
+;
+; SnapshotHead  - index of next slot to write (0..UNDO_BUFFER_SIZE-1)
+; SnapshotCount - number of valid snapshots currently held (0..UNDO_BUFFER_SIZE)
+; SnapshotBuffer - flat array of UNDO_BUFFER_SIZE Snap_sizeof-byte records
+;                  Indexed as: SnapshotBuffer + head * Snap_sizeof
+;------------------------------------------------------------------------------
+SnapshotHead:         rs.w    1
+SnapshotCount:        rs.w    1
+SnapshotBuffer:       rs.b    Snap_sizeof*UNDO_BUFFER_SIZE
+
+Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes

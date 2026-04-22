@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+# millie_molly
+Millie and Molly Amiga Port
+=======
 # Millie and Molly - Amiga Port
 
 An Amiga port of the puzzle-platformer game **Millie and Molly**, featuring native 68000 assembly programming with extensive use of Amiga custom chips (Blitter, Copper, and Agnus).
@@ -375,3 +379,4 @@ The codebase serves as both a playable game and an educational reference for Ami
 
 **Current Build Date**: April 22, 2026  
 **Last Working Feature**: Undo/rewind system (F9) with circular snapshot buffer; title screen dual parallax stars and palette cycling
+>>>>>>> source/main

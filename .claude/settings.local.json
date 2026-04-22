@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(python3 tools/inspect_levels.py 26)",
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Read(//c/Users/shani/AppData/Local/**)",
+      "Read(//c/Users/shani/.local/**)",
+      "Bash(find /c /d -name vasmm68k_mot*)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(git *)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(vasmm68k_mot -Fhunkexe -o main_test.exe main.asm)",
+      "Bash(py *)",
+      "PowerShell(Move-Item *)",
+      "Bash(awk '/^RestoreBackgroundTile:/,/^[A-Za-z_][A-Za-z0-9_]*:/' \"F:/GitHub/MillieMolly/include/resources/mapstuff.asm\")"
+    ]
+  }
+}

@@ -1,4 +1,15 @@
 
+<<<<<<< HEAD
+;-----------------------------------------------
+; Millie and Molly Amiga Port
+;-----------------------------------------------
+
+    INCDIR     "include"
+    INCLUDE    "hw.i"
+    INCLUDE    "funcdef.i"
+    include    "macros.asm"
+    include    "variables.asm"
+=======
 ;==============================================================================
 ; MILLIE AND MOLLY - AMIGA PORT
 ; main.asm  -  Program Entry Point and Core Framework
@@ -31,11 +42,24 @@
     include    "macros.asm"
     include    "variables.asm"
 
+>>>>>>> source/main
     include    "intbits.i"
     include    "dmabits.i"
     include    "const.asm"
     include    "struct.asm"
 
+<<<<<<< HEAD
+;-----------------------------------------------
+; MAIN
+;-----------------------------------------------
+
+    section    main,code
+Main:
+    lea        .trap(pc),a0
+    move.l     a0,$80
+    trap       #0
+.trap
+=======
 ;==============================================================================
 ; Code section
 ;==============================================================================
@@ -79,6 +103,7 @@ Main:
 ;   4. Call StartVBlank  - install VBlankTick at $6c and enable VERTB interrupt.
 ;   5. Spin forever (.forever loop) - game runs entirely from interrupts.
 ;==============================================================================
+>>>>>>> source/main
 
 Restart:
     ;lea        AllChip,a0
@@ -102,6 +127,13 @@ Restart:
 .forever
     bra        .forever
 
+<<<<<<< HEAD
+LevelTest:
+    tst.w      LevelComplete(a5)
+    beq        .nope
+    addq.w     #1,LevelId(a5)
+    bra        .draw
+=======
 ;==============================================================================
 ; LevelTest  -  Check for level completion or debug level navigation
 ;
@@ -138,6 +170,7 @@ LevelTest:
     move.w      #LEVEL_INIT,GameStatus(a5)
 .done
     rts
+>>>>>>> source/main
 
 .nope
     lea        Keys,a0
@@ -147,7 +180,11 @@ LevelTest:
     tst.w      LevelId(a5)
     beq        .nof1
     subq.w     #1,LevelId(a5)
+<<<<<<< HEAD
+    bra        .draw
+=======
     bra        .changelevel
+>>>>>>> source/main
 .nof1
     tst.b      KEY_F2(a0)
     beq        .nof2
@@ -155,6 +192,13 @@ LevelTest:
     cmp.w      #99,LevelId(a5)
     beq        .nof2
     addq.w     #1,LevelId(a5)
+<<<<<<< HEAD
+.draw
+    bsr        DrawMap
+.nof2
+    rts
+
+=======
     bra         .changelevel
 .nof2
     tst.b       KEY_F3(a0)
@@ -179,6 +223,7 @@ LevelTest:
 ; On entry: a5 = Variables base, a6 = CUSTOM base.
 ;==============================================================================
 
+>>>>>>> source/main
 DrawPlayers:
     lea        Millie(a5),a4
     ;bsr        DrawPlayer
@@ -187,6 +232,8 @@ DrawPlayers:
     bsr        DrawPlayer
     rts
 
+<<<<<<< HEAD
+=======
 ;==============================================================================
 ; DrawPlayer  -  Blit one player's sprite to the screen
 ;
@@ -203,6 +250,7 @@ DrawPlayers:
 ; Frame index:     Player_SpriteOffset  (base for this character + animation frame)
 ;==============================================================================
 
+>>>>>>> source/main
 DrawPlayer:
     tst.w      Player_Status(a4)
     beq        .exit
@@ -218,6 +266,22 @@ DrawPlayer:
 .exit
     rts
     
+<<<<<<< HEAD
+Init:
+
+    move.w     #0,GameStatus(a5)
+    bsr        KeyboardInit
+
+;    bsr        GameCopperInit
+;    bsr        GenSpriteMask
+;    move.l     #cpTest,COP1LC(a6)
+;    move.w     #0,COPJMP1(a6)
+;
+;    move.l     #-1,ScreenMemEnd
+;    move.w     #BASE_DMA,DMACON(a6)
+;
+;    move.w     #START_LEVEL,LevelId(a5)
+=======
 ;==============================================================================
 ; Init  -  Minimal game initialisation
 ;
@@ -244,11 +308,15 @@ Init:
 ;    move.w     #BASE_DMA,DMACON(a6)
 ;
  ;   move.w     #START_LEVEL,LevelId(a5)
+>>>>>>> source/main
 ;
     rts
 
 
 
+<<<<<<< HEAD
+GameTestInit:
+=======
 ;==============================================================================
 ; GameInit  -  Full game screen initialisation (called from TitleSetup or
 ;                  directly when entering gameplay state)
@@ -267,6 +335,7 @@ Init:
 ;==============================================================================
 
 GameInit:
+>>>>>>> source/main
     bsr        GameCopperInit
     bsr        GenSpriteMask
     move.l     #cpTest,COP1LC(a6)
@@ -274,6 +343,14 @@ GameInit:
 
     move.l     #-1,ScreenMemEnd
     move.w     #BASE_DMA,DMACON(a6)
+<<<<<<< HEAD
+
+    move.w     #START_LEVEL,LevelId(a5)
+
+    bsr        DrawMap
+    rts
+
+=======
     rts
 
 
@@ -307,6 +384,7 @@ GameInit:
 ; Called once at game startup (from Init / GameInit).
 ;==============================================================================
 
+>>>>>>> source/main
 CreateClearMasks:
     moveq      #16-1,d7
     lea        ClearMasks(a5),a0
@@ -321,6 +399,8 @@ CreateClearMasks:
     rts    
 
 
+<<<<<<< HEAD
+=======
 ;==============================================================================
 ; StartVBlank  -  Install VBlankTick and enable the vertical-blank interrupt
 ;
@@ -332,12 +412,18 @@ CreateClearMasks:
 ; executes under interrupt.
 ;==============================================================================
 
+>>>>>>> source/main
 StartVBlank:
     move.l     #VBlankTick,$6c
     move.w     #INTF_SETCLR|INTF_VERTB|INTF_COPER,INTENA(a6)
     rts
 
 
+<<<<<<< HEAD
+VBlankTick:
+    PUSHALL
+    lea        CUSTOM,a6                   
+=======
 ;==============================================================================
 ; VBlankTick  -  Level-3 vertical-blank interrupt service routine
 ;
@@ -361,6 +447,7 @@ StartVBlank:
 VBlankTick:
     PUSHALL
     lea        CUSTOM,a6
+>>>>>>> source/main
     lea        Variables,a5
 
     move.w     INTREQR(a6),d0
@@ -381,6 +468,8 @@ VBlankTick:
 
 
 
+<<<<<<< HEAD
+=======
 ;==============================================================================
 ; GameCopperInit  -  Patch the game copper list with screen and palette data
 ;
@@ -403,13 +492,18 @@ VBlankTick:
 ; copper words at +2 and +6 of each BPLxPTH/L pair.
 ;==============================================================================
 
+>>>>>>> source/main
 GameCopperInit:
     move.l     #Screen1,ScreenPtrs(a5)
     move.l     #Screen2,ScreenPtrs+4(a5)
 
     bsr        ClearSprites
 
+<<<<<<< HEAD
+    move.l     #ScreenStatic,d0
+=======
     move.l     #DisplayScreen,d0
+>>>>>>> source/main
     lea        cpPlanes,a0
     moveq      #SCREEN_DEPTH-1,d7
 .ploop
@@ -431,6 +525,8 @@ GameCopperInit:
 
     rts
 
+<<<<<<< HEAD
+=======
 ;==============================================================================
 ; ClearSprites  -  Point all 8 hardware sprite channels at NullSprite
 ;
@@ -445,6 +541,7 @@ GameCopperInit:
 ; Agnus to stop fetching sprite data immediately on the first line.
 ;==============================================================================
 
+>>>>>>> source/main
 ClearSprites:
     lea        cpSprites,a0
     move.l     #NullSprite,d0
@@ -460,6 +557,11 @@ ClearSprites:
 
 
 
+<<<<<<< HEAD
+;----------------------------------------------
+;  includes!
+;----------------------------------------------
+=======
 ;==============================================================================
 ; Subsystem includes
 ;
@@ -467,6 +569,7 @@ ClearSprites:
 ; them here.  They share the same section (main,code) and can call each other
 ; directly without any linking step.
 ;==============================================================================
+>>>>>>> source/main
 
     include    "keyboard.asm"
     include    "tools.asm"
@@ -475,11 +578,19 @@ ClearSprites:
     include    "zx0_faster.asm"
     include    "spritetools.asm"
     include    "player.asm"
+<<<<<<< HEAD
+=======
     include    "undo.asm"
+>>>>>>> source/main
     include    "controls.asm"
     include    "title.asm"
     include    "gamestatus.asm"
 
+<<<<<<< HEAD
+;----------------------------------------------
+;  data fast
+;----------------------------------------------
+=======
 ;==============================================================================
 ; Fast RAM data section  (data_fast)
 ;
@@ -496,10 +607,13 @@ ClearSprites:
 ;   WallpaperBaseTop/Base        - default wallpaper border tile templates
 ;   LevelCountRaw                - level counter UI source graphic (ui_4.bin)
 ;==============================================================================
+>>>>>>> source/main
 
     section    data_fast,data
 
 
+<<<<<<< HEAD
+=======
 ;------------------------------------------------------------------------------
 ; Easing / animation tables  (pre-computed, accessed by index each frame)
 ;
@@ -509,6 +623,7 @@ ClearSprites:
 ;            SinusEnd marks the end so SINE_ANGLES can be derived at assemble time
 ;------------------------------------------------------------------------------
 
+>>>>>>> source/main
 Quartic:    
     incbin     "assets/quartic.bin"
 Quadratic:    
@@ -548,6 +663,11 @@ LevelCountRaw:
     incbin     "assets/ui_4.bin"
 LevelCountRawEnd:
 
+<<<<<<< HEAD
+;----------------------------------------------
+;  data chip
+;----------------------------------------------
+=======
 ;==============================================================================
 ; Chip RAM data section  (data_chip)
 ;
@@ -564,16 +684,20 @@ LevelCountRawEnd:
 ;   uigfx.asm        - Button0Raw..Button3Raw UI button graphics
 ;   Star32           - 32x32 star graphic blitted by BlitStar32 on the title screen
 ;==============================================================================
+>>>>>>> source/main
 
     section    data_chip,data_c
 
     include    "copperlists.asm"
 
+<<<<<<< HEAD
+=======
 ; Gradient copper sub-list: terminates cpTitle with COLOR00 changes per scanline.
 ; Placed immediately after copperlists.asm so it is physically adjacent to the end
 ; of cpTitle in Chip RAM.  cpTest has its own HALT and is unaffected.
     include    "assets/gradient.s"
 
+>>>>>>> source/main
 RealSprites:
     incbin     "assets/realsprites.bin"
 
@@ -621,6 +745,11 @@ Star32:
     incbin     "assets/star32.raw"
 
 
+<<<<<<< HEAD
+;----------------------------------------------
+;   mem fast
+;----------------------------------------------
+=======
 ;==============================================================================
 ; Fast RAM BSS section  (mem_fast)
 ;
@@ -634,6 +763,7 @@ Star32:
 ;                Followed by 200 bytes of padding to safely handle any out-of-
 ;                range scan-codes without corrupting adjacent data.
 ;==============================================================================
+>>>>>>> source/main
 
     section    mem_fast,bss
 
@@ -651,6 +781,11 @@ AllFastEnd:
 
 
 
+<<<<<<< HEAD
+;----------------------------------------------
+;   mem chip
+;----------------------------------------------
+=======
 ;==============================================================================
 ; Chip RAM BSS section  (mem_chip)
 ;
@@ -685,6 +820,7 @@ AllFastEnd:
 ;                     Initialised to -1 as a sentinel; any overrun that writes
 ;                     here is detectable in a debugger.
 ;==============================================================================
+>>>>>>> source/main
 
     section    mem_chip,bss_c
 AllChip:
@@ -710,10 +846,17 @@ Screen1:
 Screen2:
     ds.b       SCREEN_SIZE
 
+<<<<<<< HEAD
+ScreenStatic:
+    ds.b       SCREEN_SIZE
+
+ScreenSave:
+=======
 DisplayScreen:
     ds.b       SCREEN_SIZE
 
 NonDisplayScreen:
+>>>>>>> source/main
     ds.b       SCREEN_SIZE
 
 ScreenMemEnd:
