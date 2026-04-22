@@ -2407,7 +2407,11 @@ LevelRevealSetup:
     PUSHALL
 
     ; draw the new map into the NonDisplayScreen
-    bsr         DrawMap 
+    bsr         DrawMap
+
+    ; Reset the undo buffer and take the initial level snapshot so the player
+    ; can rewind back to this exact state with the first F9 press
+    bsr         InitUndoBuffer
 
     ; Initialise tiles done back to 0
     clr.w       WipeTilesDone(a5)

@@ -475,6 +475,7 @@ ClearSprites:
     include    "zx0_faster.asm"
     include    "spritetools.asm"
     include    "player.asm"
+    include    "undo.asm"
     include    "controls.asm"
     include    "title.asm"
     include    "gamestatus.asm"

@@ -208,6 +208,16 @@ STAR_SLOW_PAL_OFF   = 2+(16*4)        ; COLOR16 data word in cpTitlePal
 STAR_FAST_COLOR     = $fe8            ; fast layer: warm near-white (bright foreground stars)
 STAR_SLOW_COLOR     = $46c            ; slow layer: dim cool blue   (distant background stars)
 
+; Sine-wave wobble parameters for TitleStarDraw
+; Phase spread: 4 stars placed SINE_ANGLES/4 = 512 entries apart → quarter-period spacing
+;   (computed via  mulu #SINE_ANGLES/4,d3  — mulu used because 9-bit shift > 68000 max of 8)
+; Fast layer: 8 table entries per frame → full cycle every 256 frames (~5s at 50Hz)
+STAR_WAVE_FAST_SHIFT  = 3            ; TickCounter lsl for fast-layer wave speed (max 8, valid)
+; Fast amplitude: ±8 pixels  — needs ÷4096: two-step  asr.w #8 ; asr.w #4
+; Slow layer: 4 table entries per frame → full cycle every 512 frames (~10s at 50Hz)
+STAR_WAVE_SLOW_SHIFT  = 2            ; TickCounter lsl for slow-layer wave speed
+; Slow amplitude: ±4 pixels  — needs ÷8192: two-step  asr.w #8 ; asr.w #5
+
 BlitStar32:
     PUSHALL
 
@@ -461,24 +471,43 @@ TitleRun:
 ; TitleStarDraw  -  Animate and blit both parallax star layers
 ;
 ; Fast layer (TitleStars, plane 3):
-;   X += 1 every frame; Y += 1 every 2 frames (bit 0 of TickCounter = 0).
+;   X += 1/frame; Y += 1/2 frames.
+;   Sine wobble applied to blit Y only (not stored): ±8 pixels, ~5s cycle.
 ;
 ; Slow layer (TitleSlowStars, plane 4):
-;   X += 1 every 2 frames (bit 0 of TickCounter = 0);
-;   Y += 1 every 4 frames (bits 1:0 of TickCounter = 00).
+;   X += 1/2 frames; Y += 1/4 frames.
+;   Sine wobble: ±4 pixels, ~10s cycle.
 ;
-; Both layers blit 4 horizontally-tiled copies of Star32, each 3*32 pixels apart.
+; Both layers spread 4 stars a quarter-period apart in the sine wave so
+; they form a continuous flowing curve across the screen.
 ; Wrap: X at 3*32 (96), Y at TITLE_STAR_COUNT*32*3 (384).
+; Blit Y is transient (wobbled); stored Y drifts at the base scroll rate.
 ;==============================================================================
 
 TitleStarDraw:
-    ; --- Fast star layer (plane 3, full speed) ---
+    ; --- Fast star layer (plane 3, full speed + sine wobble) ---
     lea         TitleStars,a0
     moveq       #TITLE_STAR_COUNT-1,d7
 
 .fastloop
     move.w      (a0),d0
     move.w      2(a0),d1
+
+    ; Sine-wave Y offset: sample Sinus at (TickCounter*8 + star_index*512)
+    ; Result ±8 pixels added to d1 for the blit (stored Y is not modified).
+    move.w      TickCounter(a5),d2
+    lsl.w       #STAR_WAVE_FAST_SHIFT,d2           ; phase = tick * 8
+    move.w      #TITLE_STAR_COUNT-1,d3
+    sub.w       d7,d3                              ; d3 = star index (0-3)
+    mulu        #SINE_ANGLES/4,d3                  ; d3 = index * 512 (mulu: > 8-bit shift)
+    add.w       d3,d2
+    and.w       #SINE_ANGLES-1,d2                  ; wrap to table (mask $7FF)
+    add.w       d2,d2                              ; byte index
+    lea         Sinus,a1
+    move.w      (a1,d2.w),d2                       ; ±$7fff
+    asr.w       #8,d2                              ; ÷4096 in two steps (68000 max shift = 8)
+    asr.w       #4,d2                              ; → ±8 pixels
+    add.w       d2,d1                              ; modulate blit Y
 
     bsr         BlitStar32
     add.w       #3*32,d0
@@ -508,7 +537,7 @@ TitleStarDraw:
     addq.w      #4,a0
     dbra        d7,.fastloop
 
-    ; --- Slow star layer (plane 4, half speed) ---
+    ; --- Slow star layer (plane 4, half speed + gentler sine wobble) ---
     lea         TitleSlowStars,a0
     moveq       #TITLE_STAR_COUNT-1,d7
 
@@ -516,6 +545,21 @@ TitleStarDraw:
     move.w      (a0),d0
     move.w      2(a0),d1
 
+    ; Sine-wave Y offset: same quarter-period phase spread, slower speed + smaller amplitude
+    move.w      TickCounter(a5),d2
+    lsl.w       #STAR_WAVE_SLOW_SHIFT,d2           ; phase = tick * 4
+    move.w      #TITLE_STAR_COUNT-1,d3
+    sub.w       d7,d3
+    mulu        #SINE_ANGLES/4,d3                  ; d3 = index * 512
+    add.w       d3,d2
+    and.w       #SINE_ANGLES-1,d2
+    add.w       d2,d2
+    lea         Sinus,a1
+    move.w      (a1,d2.w),d2                       ; ±$7fff
+    asr.w       #8,d2                              ; ÷8192 in two steps
+    asr.w       #5,d2                              ; → ±4 pixels
+    add.w       d2,d1
+
     bsr         BlitStar32Slow
     add.w       #3*32,d0
     bsr         BlitStar32Slow
@@ -525,13 +569,13 @@ TitleStarDraw:
     bsr         BlitStar32Slow
 
     move.w      TickCounter(a5),d5
-    and.w       #1,d5                  ; X += 1 every 2 frames (bit 0 = 0)
+    and.w       #1,d5                  ; X += 1 every 2 frames
     bne         .slowskipx
     addq.w      #1,(a0)
 .slowskipx
 
     move.w      TickCounter(a5),d5
-    and.w       #3,d5                  ; Y += 1 every 4 frames (bits 1:0 = 0)
+    and.w       #3,d5                  ; Y += 1 every 4 frames
     bne         .slowskipy
     addq.w      #1,2(a0)
 .slowskipy

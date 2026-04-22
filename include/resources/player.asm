@@ -95,6 +95,7 @@ ActionFall:
     add.w       Player_Fallen(a4),d6   ; add player's own fall flag
     bne         .notyet                 ; d6 != 0 -> at least one fall still active
     move.w      #ACTION_IDLE,ActionStatus(a5)   ; all falls complete -> back to idle
+    bsr         TakeSnapshot           ; game fully settled after the fall chain
 
 .notyet
     rts
@@ -333,6 +334,10 @@ ActionPlayerPush:
 
 .nofall
     move.w      d0,ActionStatus(a5)
+    ; If settling to IDLE (no fall), snapshot now; fall case deferred to ActionFall
+    tst.w       d0
+    bne         .exit
+    bsr         TakeSnapshot
 
 .exit
     rts
@@ -900,6 +905,12 @@ ActionMove:
     move.w      #ACTION_FALL,ActionStatus(a5)  ; one or more actors fell -> enter fall state
 
 .nofall
+    ; If ActionStatus is still IDLE (no player fall, no actor fall), the game has
+    ; settled - snapshot now.  If ACTION_FALL is pending, defer to ActionFall.
+    tst.w       ActionStatus(a5)
+    bne         .exit
+    bsr         TakeSnapshot
+
 .exit
     rts
 
@@ -919,6 +930,14 @@ ActionMove:
 ;==============================================================================
 
 ActionIdle:
+    ; F9 = undo last move (one-shot: clears the key so it requires a fresh press)
+    lea         Keys,a0
+    tst.b       KEY_F9(a0)
+    beq         .nof9
+    clr.b       KEY_F9(a0)
+    bsr         UndoMove
+    rts                                              ; done for this frame after undo
+.nof9
     btst        #CONTROLB_FIRE,ControlsTrigger(a5)  ; FIRE button just pressed?
     bne         PlayerSwitch                         ; yes -> switch active player
 

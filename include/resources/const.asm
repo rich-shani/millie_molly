@@ -147,6 +147,17 @@ TITLE_STAR_COUNT    = 4
 
 
 ;------------------------------------------------------------------------------
+; Undo / rewind buffer size.
+;
+; UNDO_BUFFER_SIZE snapshots are kept in a circular buffer in Fast RAM.
+; Must be a power of 2 (AND mask used for circular wrap).
+; The buffer holds the initial level state plus UNDO_BUFFER_SIZE-1 move states,
+; so the player can rewind up to UNDO_BUFFER_SIZE-1 moves.
+;------------------------------------------------------------------------------
+UNDO_BUFFER_SIZE    = 8         ; power of 2; 8 undoable moves + initial state
+
+
+;------------------------------------------------------------------------------
 ; Pre-combined display window register values written into the copper list.
 ; Constructed from the individual X/Y constants above.
 ;------------------------------------------------------------------------------

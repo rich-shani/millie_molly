@@ -143,6 +143,36 @@ Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 ;   Clean_BlitMod      - blitter modulo for this operation
 ;==============================================================================
 
+;==============================================================================
+; Snapshot structure  (Snap_sizeof bytes)
+;
+; One snapshot captures the minimal game state needed to fully rewind one move:
+;   - Both players: tile X/Y, status, facing, and on-ladder flag
+;   - The full GameMap (WALL_PAPER_SIZE bytes) - records dirt/push/enemy positions
+;   - All actor slots: tile X/Y and live/dead status (3 words each)
+;
+; MAX_ACTORS (= MAP_SIZE = 88) slots are always saved, dead or alive,
+; so the slot index within Actors[] is preserved across save/restore.
+;
+; Snap_sizeof bytes per snapshot; UNDO_BUFFER_SIZE snapshots in SnapshotBuffer.
+;==============================================================================
+
+                          RSRESET
+Snap_MillieX:             rs.w    1   ; Millie tile column
+Snap_MillieY:             rs.w    1   ; Millie tile row
+Snap_MillieStatus:        rs.w    1   ; Millie Player_Status (0/1/2)
+Snap_MillieFacing:        rs.w    1   ; Millie Player_Facing (+1/-1)
+Snap_MillieOnLadder:      rs.w    1   ; Millie Player_OnLadder (0/nonzero)
+Snap_MollyX:              rs.w    1   ; Molly tile column
+Snap_MollyY:              rs.w    1   ; Molly tile row
+Snap_MollyStatus:         rs.w    1   ; Molly Player_Status
+Snap_MollyFacing:         rs.w    1   ; Molly Player_Facing
+Snap_MollyOnLadder:       rs.w    1   ; Molly Player_OnLadder
+Snap_Map:                 rs.b    WALL_PAPER_SIZE  ; GameMap copy (126 bytes)
+Snap_Actors:              rs.b    MAX_ACTORS*6     ; X word + Y word + Status word per slot (528 bytes)
+Snap_sizeof:              rs.w    0   ; total snapshot size in bytes (= 674)
+
+
                           RSRESET
 Clean_ScreenOffset:       rs.w    1   ; byte offset into screen buffer
 Clean_BlitSize:           rs.w    1   ; BLTSIZE value for the clear blit

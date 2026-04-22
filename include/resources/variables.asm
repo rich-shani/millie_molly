@@ -244,4 +244,16 @@ WipeHoldTick:         rs.w    1
 WipeTileX:            rs.b    WALL_PAPER_SIZE
 WipeTileY:            rs.b    WALL_PAPER_SIZE
 
+;------------------------------------------------------------------------------
+; Undo / rewind snapshot buffer
+;
+; SnapshotHead  - index of next slot to write (0..UNDO_BUFFER_SIZE-1)
+; SnapshotCount - number of valid snapshots currently held (0..UNDO_BUFFER_SIZE)
+; SnapshotBuffer - flat array of UNDO_BUFFER_SIZE Snap_sizeof-byte records
+;                  Indexed as: SnapshotBuffer + head * Snap_sizeof
+;------------------------------------------------------------------------------
+SnapshotHead:         rs.w    1
+SnapshotCount:        rs.w    1
+SnapshotBuffer:       rs.b    Snap_sizeof*UNDO_BUFFER_SIZE
+
 Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes
