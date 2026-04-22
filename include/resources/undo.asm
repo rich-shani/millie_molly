@@ -240,9 +240,16 @@ UndoMove:
     ; Rebuild ActorList from restored Actor statuses
     bsr         RebuildActorList
 
-    ; Redraw display: clean background then all alive actors
+    ; Redraw display: clean background, alive actors, then frozen player tile
     bsr         CopySaveToStatic           ; NonDisplayScreen -> DisplayScreen
     bsr         DrawStaticActors           ; blit actor tiles into DisplayScreen
+
+    ; Redraw the frozen player's static tile (active player is a hardware sprite,
+    ; updated automatically by ShowSprite each VBlank from the restored Player_X/Y)
+    move.l      PlayerPtrs+4(a5),a4       ; a4 -> frozen player struct
+    tst.w       Player_Status(a4)         ; status 0 = not placed in this level
+    beq         .exit
+    bsr         DrawPlayerFrozen           ; blit frozen sprite into DisplayScreen
 
 .exit
     POPALL
