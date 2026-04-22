@@ -1,13 +1,10 @@
 # Millie and Molly - Amiga Port
 
-A faithful Amiga port of the classic puzzle-platformer game **Millie and Molly**, featuring native 68000 assembly programming with extensive use of Amiga custom chips (Blitter, Copper, and Agnus).
+An Amiga port of the puzzle-platformer game **Millie and Molly**, featuring native 68000 assembly programming with extensive use of Amiga custom chips (Blitter, Copper, and Agnus).
 
 ## Overview
 
-Millie & Molly is a two-character puzzle-platformer for the Amiga, written entirely in
-Motorola 68000 assembly. The game targets OCS/ECS hardware at PAL 50 Hz, uses all five
-bitplanes (32 colours), four hardware sprite channels (two attached pairs for the player
-characters), and drives the blitter exclusively for tile rendering, background restoration,
+The game targets OCS/ECS hardware at PAL 50 Hz, uses five bitplanes (32 colours), four hardware sprite channels (two attached pairs for the player characters), and drives the blitter exclusively for tile rendering, background restoration,
 and screen wipe transitions.
 
 - **Blitter-accelerated graphics** - All tile rendering uses the Amiga's hardware Blitter for optimal performance
@@ -21,13 +18,14 @@ and screen wipe transitions.
 ### Core Mechanics
 
 - **Two-player puzzle platforming** - Control Millie and Molly to solve level puzzles
-- **Gravity physics** - Characters and objects fall under gravity with realistic easing
+- **Gravity physics** - Characters and objects fall under genuine constant-acceleration physics (slow→fast)
 - **Interactive elements**:
   - **Ladders** - Climb up and down with dedicated climbing animations
   - **Pushable blocks** - Slide blocks horizontally to solve puzzles
   - **Breakable dirt** - Destroy dirt blocks by walking through them
-  - **Enemies** - Falling and floating enemies with gravity physics
+  - **Enemies** - Falling and floating enemies with animated tiles; enemy death triggers a 7-frame cloud puff animation
   - **Walls and platforms** - Navigate solid obstacles with varied tileset graphics
+- **Undo / rewind** - Press F9 to step back up to 8 moves using a circular snapshot buffer
 
 ### Player Controls
 
@@ -35,12 +33,14 @@ and screen wipe transitions.
 |-------|--------|
 | **Arrow Keys** | Move left/right, climb ladders up/down |
 | **FIRE/Space** | Switch between Millie and Molly |
-| **F1-F2** | Navigate levels (debug) |
+| **F1-F2**     | Navigate levels (debug) |
+| **F3**        | Start game (from Title Screen) |
+| **F9**        | Undo last move (up to 8 steps) |
 
 ### Level Progression
 
 - **Dynamic level system** - Multiple tileset variations with randomized wall patterns
-- **Level completion** - Destroy all enemies to complete a level
+- **Level completion** - Destroy all enemies to complete a level; triggers a tile-based black wipe then reverse reveal of the next level
 - **Asset switching** - Each level uses appropriately themed tile graphics and palettes
 
 ## Technical Architecture
@@ -116,6 +116,7 @@ MillieMolly/
 │   ├── mapstuff.asm           # Level rendering, Blitter operations
 │   ├── gamestatus.asm         # Game state machine
 │   ├── title.asm              # Title screen logic
+│   ├── undo.asm               # Snapshot-based undo/rewind system
 │   ├── controls.asm           # Keyboard input handling
 │   ├── keyboard.asm           # CIA-A keyboard interrupt handler
 │   ├── struct.asm             # Data structure definitions
@@ -155,6 +156,8 @@ MillieMolly/
 - Movement state (previous position, delta offsets for sub-tile animation)
 - Physics (can fall, falling state, fall distance)
 - Status (alive/dead)
+- `Actor_ImpactTick` — landing smoke puff animation counter (4 frames)
+- `Actor_CloudTick` — enemy death cloud animation counter (7 frames)
 
 **Actor Types**:
 - `BLOCK_ENEMYFALL` - Enemy subject to gravity
@@ -174,7 +177,7 @@ MillieMolly/
 ActionStatus values:
   ACTION_IDLE (0)      → ActionIdle
   ACTION_MOVE (1)      → ActionMove (24-frame animation)
-  ACTION_FALL (2)      → ActionFall (eased quadratic fall)
+  ACTION_FALL (2)      → ActionFall (constant-acceleration fall, slow→fast)
   ACTION_PLAYERPUSH (3)→ ActionPlayerPush (12-frame push animation)
 ```
 
@@ -209,6 +212,39 @@ Per-Frame Rendering (GameRun):
   2. ClearMovedActors()             → Erase old positions
   3. Display via Copper+Denise      → Custom chip outputs pixels
 ```
+
+### Undo / Rewind System
+
+Pressing **F9** steps the game back one move at a time, up to `UNDO_BUFFER_SIZE - 1` moves (default 8).
+
+**Implementation** (`undo.asm`):
+- **`TakeSnapshot`** — called after every move settles; copies the full player and actor state into a circular `SnapshotBuffer` indexed by `SnapshotHead`
+- **`UndoMove`** — decrements `SnapshotHead`, restores player and actor structs from the saved snapshot, redraws the map and all actors via `UndoDrawActors`
+- **`UndoDrawActors`** — full-scan actor draw that iterates all `MAX_ACTORS` slots regardless of `ActorCount`, avoiding misses caused by `CleanActors` shrinking the live count
+- **`InitUndoBuffer`** — called at level load to reset `SnapshotHead` and `SnapshotCount`; an initial snapshot is taken immediately so the player can always undo back to the level start state
+
+**Why not a simple move-log?** Because actors cascade (fall, get pushed) after every player action. Snapshotting the complete struct state is simpler and more robust than replaying a log in reverse.
+
+### Title Screen
+
+The title screen (`title.asm`) runs as a standalone state before gameplay.
+
+- **Two parallax star layers** — fast stars on bitplane 3, slow stars on bitplane 4; each layer has independent X/Y velocity and wraps at screen edges
+- **Palette cycling** — `TitleCycleColours` updates `COLOR01–COLOR07` each VBlank via the copper list, creating a shifting colour wash over the logo
+- **Star colours** — `COLOR08–COLOR15` locked to the fast-star colour; `COLOR16–COLOR31` to the slow-star colour so stars remain visible over logo pixels at all palette phases
+- **Sine wobble** — star Y positions use a sine table for vertical undulation
+- **F3 to start** — title polls F3 via `ControlsTrigger` and transitions to `LEVEL_INIT`
+
+### Level Transition
+
+When the last enemy is killed the game runs a tile-based wipe/reveal:
+
+1. **`LevelWipeSetup`** — builds a shuffled ordered list of all `14×9` tile positions
+2. **`LevelWipeRun`** — blits each tile to solid black (`WipeBlitBlack`, minterm `$0A`) one per tick until the screen is dark
+3. **`LevelRevealSetup`** — renders the next level into `NonDisplayScreen`, computes the reversed tile order
+4. **`LevelRevealRun`** — blits tiles back to white (`WipeBlitWhite`, minterm `$FA`) then restores the live level graphics
+
+`GameStatusRun` dispatches `GAME_WIPE → GAME_REVEAL` states; player logic is suspended during the transition.
 
 ### Ladder Animation System
 
@@ -254,6 +290,7 @@ uae --fullscreen
 
 - **Masked tile blitting** with shift-aware modulo calculations
 - **Background restoration** during pixel-by-pixel animation
+- **White/black wipe transitions** using minterms `$FA` and `$0A` for tile-fill effects
 - **Shadow overlays** using per-plane OR operations
 - **Button graphics** with dynamic digit rendering for level counter
 
@@ -276,22 +313,27 @@ uae --fullscreen
 ### Completed
 
 ✅ Core gameplay loop (move, push, climb, fall)  
-✅ Actor physics and gravity  
+✅ Actor physics and gravity (constant acceleration — slow→fast)  
 ✅ Ladder climbing mechanics  
 ✅ Level system with multiple tilesets  
 ✅ Blitter-accelerated rendering  
 ✅ Player animation and sprite selection  
-✅ Enemy AI (falling and floating)  
+✅ Enemy AI (falling and floating) with 4-frame tile animation  
 ✅ Dirt destruction mechanics  
+✅ Enemy death cloud puff animation (7-frame HW sprite)  
+✅ Actor landing smoke puff animation (4-frame)  
+✅ Level intro star animation with trail and hold  
+✅ Level-complete tile wipe and reverse reveal transition  
+✅ Title screen with dual parallax star layers and palette cycling  
+✅ Undo / rewind mechanic (F9, up to 8 moves, circular snapshot buffer)  
+✅ Two-player initialization (Millie active, Molly frozen)  
 
 ### In Progress / TODO
 
-⏳ Enemy destruction animations  
-⏳ Fall animation easing  
 ⏳ Enter/leave ladder animations  
 ⏳ Kick animations  
-⏳ Rewind/undo mechanic  
 ⏳ Game presentation polish  
+⏳ Fix missing player start positions in some level data files  
 
 ## Register Conventions
 
@@ -331,5 +373,5 @@ The codebase serves as both a playable game and an educational reference for Ami
 
 ---
 
-**Current Build Date**: April 18, 2026  
-**Last Working Feature**: Ladder climbing with correct sprite selection based on movement direction
+**Current Build Date**: April 22, 2026  
+**Last Working Feature**: Undo/rewind system (F9) with circular snapshot buffer; title screen dual parallax stars and palette cycling
