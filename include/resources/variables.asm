@@ -160,6 +160,14 @@ TitleStars:           rs.l    TITLE_STAR_COUNT    ; fast stars {X,Y} word pairs 
 TitleSlowStars:       rs.l    TITLE_STAR_COUNT    ; slow stars {X,Y} word pairs (plane 4)
 
 ;------------------------------------------------------------------------------
+; Title copper bar animation
+;
+; TitleBarSineOff - current offset into the Sinus table for the bar's vertical
+;                  sine-wave movement. Incremented each frame by MoveTitleBar.
+;------------------------------------------------------------------------------
+TitleBarSineOff:      rs.w    1   ; sine table index for bar vertical movement
+
+;------------------------------------------------------------------------------
 ; Fallen actor list
 ;
 ; FallenActors      - array of actor pointers for actors that are currently

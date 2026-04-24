@@ -226,7 +226,7 @@ cpTitleSprites:
 ; The title raw graphic uses 3 bitplanes -> 8 colours (entries 0-7).
 ; Entries 8-31 are unused but set to 0 (black) for cleanliness.
 cpTitlePal:
-    dc.w    COLOR00,$00f            ; colour  0: background (placeholder, patched)
+    dc.w    COLOR00,$000            ; colour  0: background (black)
     dc.w    COLOR01,0               ; colour  1 (patched from TitlePal)
     dc.w    COLOR02,0               ; colour  2 (patched)
     dc.w    COLOR03,0               ; colour  3 (patched)
@@ -259,5 +259,66 @@ cpTitlePal:
     dc.w    COLOR30,0               ; colour 30
     dc.w    COLOR31,0               ; colour 31
 
-; Gradient follows immediately in data_chip section (see main.asm after copperlists include).
-; It terminates cpTitle with its own COPPER_HALT after changing COLOR00 per scanline.
+; Ensure COLOR00 is black (override palette value)
+    dc.w    COLOR00,$000            ; black background (immediate, no WAIT)
+
+; Black background before bars start
+  ;  dc.w    $2c07,$fffe             ; scanline $2c (display start)
+  ;  dc.w    COLOR00,$000            ; black background
+
+; cpTitleBar  -  9-scanline rotating copper bar for the middle of title screen
+;
+; Initial WAIT Y bytes ($80-$88) are patched each frame by MoveTitleBar.
+; Color words at offsets +6, +14, +22, ... are rotated in-place by RotateTitleBar
+; so that the bar appears to pulse/animate its colour field.
+cpTitleBar:
+    dc.w    $8007,$fffe             ; wait line $80 (patched each frame, middle of screen)
+    dc.w    COLOR00,$f0b            ; bar colour 1 (red-orange)
+    dc.w    $8107,$fffe             ; wait line $81 (patched)
+    dc.w    COLOR00,$ff0            ; bar colour 2 (bright yellow)
+    dc.w    $8207,$fffe
+    dc.w    COLOR00,$fd0            ; bar colour 3 (orange-yellow)
+    dc.w    $8307,$fffe
+    dc.w    COLOR00,$39f            ; bar colour 4 (center, purple)
+    dc.w    $8407,$fffe
+    dc.w    COLOR00,$ff0            ; bar colour 5 (bright yellow)
+    dc.w    $8507,$fffe
+    dc.w    COLOR00,$39f            ; bar colour 6 (purple)
+    dc.w    $8607,$fffe
+    dc.w    COLOR00,$fd0            ; bar colour 7 (orange-yellow)
+    dc.w    $8707,$fffe
+    dc.w    COLOR00,$ff0            ; bar colour 8 (bright yellow)
+    dc.w    $8807,$fffe
+    dc.w    COLOR00,$f0b            ; bar colour 9 (red-orange)
+    dc.w    $8907,$fffe             ; restore entry (patched to bar_Y + 9)
+    dc.w    COLOR00,$000            ; restore background after bar
+
+; cpTitleBar2  -  9-scanline rotating copper bar for middle of title screen
+;
+; Mirrors cpTitleBar at the same screen position. Initial WAIT Y bytes ($80-$88) are
+; patched each frame by MoveTitleBar2 in the opposite direction (inverted sine wave).
+; Colors rotate with the same pattern as cpTitleBar.
+cpTitleBar2:
+    dc.w    $8007,$fffe             ; wait line $80 (patched each frame, inverted, middle)
+    dc.w    COLOR00,$f0b            ; bar colour 1 (red-orange)
+    dc.w    $8107,$fffe             ; wait line $81 (patched)
+    dc.w    COLOR00,$ff0            ; bar colour 2 (bright yellow)
+    dc.w    $8207,$fffe
+    dc.w    COLOR00,$fd0            ; bar colour 3 (orange-yellow)
+    dc.w    $8307,$fffe
+    dc.w    COLOR00,$39f            ; bar colour 4 (center, purple)
+    dc.w    $8407,$fffe
+    dc.w    COLOR00,$ff0            ; bar colour 5 (bright yellow)
+    dc.w    $8507,$fffe
+    dc.w    COLOR00,$39f            ; bar colour 6 (purple)
+    dc.w    $8607,$fffe
+    dc.w    COLOR00,$fd0            ; bar colour 7 (orange-yellow)
+    dc.w    $8707,$fffe
+    dc.w    COLOR00,$ff0            ; bar colour 8 (bright yellow)
+    dc.w    $8807,$fffe
+    dc.w    COLOR00,$f0b            ; bar colour 9 (red-orange)
+    dc.w    $8907,$fffe             ; restore entry (patched to bar_Y + 9)
+    dc.w    COLOR00,$000            ; restore background after bar
+
+    dc.l    COPPER_HALT             ; end-of-list marker 1 ($fffffffe)
+    dc.l    COPPER_HALT             ; end-of-list marker 2 (belt-and-braces)

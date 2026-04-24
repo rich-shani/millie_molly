@@ -1,4 +1,3 @@
-
 ;==============================================================================
 ; MILLIE AND MOLLY - AMIGA PORT
 ; title.asm  -  Title Screen Setup and Animation
@@ -46,6 +45,12 @@ TITLE_SCREEN_HEIGHT     = SCREEN_HEIGHT+32  ; title screen total height (extra f
 ;   (336/2 - 208/2) / 8 = (168 - 104) / 8 = 64/8 = 8 bytes
 TITLE_LOGO_OFFSET       = ((336/2)-(TITLE_WIDTH/2))/8
 
+; Rotating copper bar parameters (title screen)
+TITLE_BAR_COUNT         = 9              ; number of bar scanlines
+TITLE_BAR_CENTER        = $3c            ; center Y position (60 = upper portion of screen)
+TITLE_BAR2_CENTER       = $88            ; second bar center Y position (122 = lower, meets top bar at $5b)
+TITLE_BAR_STRIDE        = 8              ; bytes between consecutive bar entries in copper list
+
 
 ;==============================================================================
 ; TitleSetup  -  Initialise the title screen (game state 0)
@@ -60,14 +65,12 @@ TITLE_LOGO_OFFSET       = ((336/2)-(TITLE_WIDTH/2))/8
 ;   3. Set ScreenMemEnd to -1 (signals that the screen memory is valid).
 ;   4. Enable DMA (BASE_DMA).
 ;   5. Advance GameStatus to TitleRun (1).
-;   6. Initialise the fast star positions in TitleStars (plane 3 layer):
+;   6. Initialise the four star positions in TitleStars:
 ;      - Star 0: X=0,        Y=0
 ;      - Star 1: X=3*32/2,   Y=3*32
 ;      - Star 2: X=3*32,     Y=6*32
 ;      - Star 3: X=3*32*3/2, Y=9*32
 ;      (each star spaced by 3*32/2 horizontally and 3*32 vertically)
-;      Initialise the slow star positions in TitleSlowStars (plane 4 layer)
-;      with a 24-pixel / 192-pixel offset for visual variety.
 ;   7. Copy the title logo from TitleRaw (in Chip RAM data section) into the
 ;      first three planes of DisplayScreen at the centred position.
 ;      The copy handles the fact that the logo planes are tightly packed while
@@ -87,33 +90,34 @@ TitleSetup:
 
     addq.w      #GAME_TITLE,GameStatus(a5)      ; advance to state 1 (TitleRun)
 
-    ; Initialise fast star positions in TitleStars[] (plane 3 layer).
+    ; [FAST STARS DISABLED - using slow stars only]
+    ; Initialise four star X/Y positions in TitleStars[] array (lower half only).
     ; Each star entry is two words: { X word, Y word }.
-    ; Stars are spaced so they do not overlap initially.
-    lea         TitleStars,a0          ; a0 -> TitleStars word-pair array
-    moveq       #TITLE_STAR_COUNT-1,d7
-    moveq       #0,d0                  ; starting X = 0
-    moveq       #0,d1                  ; starting Y = 0
+    ; They are spaced apart so they do not overlap initially.
+    ;lea         TitleStars,a0          ; a0 -> TitleStars word-pair array
+    ;moveq       #TITLE_STAR_COUNT-1,d7 ; 4 stars, loop count-1 for DBRA
+    ;moveq       #0,d0                  ; starting X = 0
+    ;move.w      #128,d1                ; starting Y = 128 (lower half of screen)
+    ;
+    ;.starloop
+    ;move.w      d0,(a0)+               ; store star X
+    ;move.w      d1,(a0)+               ; store star Y
+    ;add.w       #(3*32)/2,d0           ; next star X: shift right by half a star-cell (48)
+    ;add.w       #3*32,d1               ; next star Y: shift down by one star-cell (96)
+    ;dbra        d7,.starloop
 
-.starloop
-    move.w      d0,(a0)+               ; store star X
-    move.w      d1,(a0)+               ; store star Y
-    add.w       #(3*32)/2,d0           ; X: +48 per star
-    add.w       #3*32,d1               ; Y: +96 per star
-    dbra        d7,.starloop
-
-    ; Initialise slow star positions in TitleSlowStars[] (plane 4 layer).
-    ; Offset by (24,192) from the fast layer for visual variety.
+    ; Initialise slow star positions in TitleSlowStars[] (plane 4 layer, lower third).
+    ; Stars are positioned horizontally across the screen at fixed Y position.
     lea         TitleSlowStars,a0
     moveq       #TITLE_STAR_COUNT-1,d7
-    move.w      #24,d0                 ; start X offset from fast layer
-    move.w      #192,d1                ; start Y offset
+    moveq       #0,d0                  ; start X = 0
+    move.w      #192,d1                ; start Y = 192 (lower third of screen)
 
 .slowstarloop
     move.w      d0,(a0)+
     move.w      d1,(a0)+
-    add.w       #(3*32)/2,d0
-    add.w       #3*32,d1
+    add.w       #(3*32)/2,d0           ; next star X: shift right by half a star-cell (48)
+    ; Y remains constant at 192 (no vertical movement)
     dbra        d7,.slowstarloop
 
     ; Copy the title logo (TitleRaw) into DisplayScreen.
@@ -128,6 +132,7 @@ TitleSetup:
 
     lea         TitleRaw,a0            ; a0 -> source logo data (plane 0 row 0)
     lea         DisplayScreen+TITLE_LOGO_OFFSET,a1   ; a1 -> destination (centred)
+    lea         16*TITLE_SCREEN_STRIDE(a1),a1        ; offset down 16 scanlines
 
     move.l      a1,a2                  ; a2 = base of row 0 (outer row pointer)
 
@@ -154,6 +159,9 @@ TitleSetup:
     lea         TITLE_SCREEN_STRIDE(a2),a2
 
     dbra        d7,.lineloop           ; next row
+
+    ; Initialise the rotating copper bar
+    bsr         InitTitleBar
 
     rts
 
@@ -194,30 +202,6 @@ TitleSetup:
 STAR_BLIT_SIZE      = (32<<6)|2        ; BLTSIZE: 32 rows, 2 words wide
 STAR_BLIT_DEST_MOD  = TITLE_SCREEN_STRIDE-4    ; dest modulo: skip back to same plane next row
 
-; Byte offset from row start to the plane used by each star layer (guard -4 included):
-;   Plane 3 (BPL4, bit 3 of colour index → COLOR08): fast star layer
-;   Plane 4 (BPL5, bit 4 of colour index → COLOR16): slow star layer
-STAR_PLANE3_OFFSET  = TITLE_SCREEN_WIDTH_BYTE*3-4
-STAR_PLANE4_OFFSET  = TITLE_SCREEN_WIDTH_BYTE*4-4
-
-; Copper palette slot offsets for each star layer's colour register (data word at +2)
-STAR_FAST_PAL_OFF   = 2+(8*4)         ; COLOR08 data word in cpTitlePal
-STAR_SLOW_PAL_OFF   = 2+(16*4)        ; COLOR16 data word in cpTitlePal
-
-; Colour values (RGB444) for each star layer
-STAR_FAST_COLOR     = $fe8            ; fast layer: warm near-white (bright foreground stars)
-STAR_SLOW_COLOR     = $46c            ; slow layer: dim cool blue   (distant background stars)
-
-; Sine-wave wobble parameters for TitleStarDraw
-; Phase spread: 4 stars placed SINE_ANGLES/4 = 512 entries apart → quarter-period spacing
-;   (computed via  mulu #SINE_ANGLES/4,d3  — mulu used because 9-bit shift > 68000 max of 8)
-; Fast layer: 8 table entries per frame → full cycle every 256 frames (~5s at 50Hz)
-STAR_WAVE_FAST_SHIFT  = 3            ; TickCounter lsl for fast-layer wave speed (max 8, valid)
-; Fast amplitude: ±8 pixels  — needs ÷4096: two-step  asr.w #8 ; asr.w #4
-; Slow layer: 4 table entries per frame → full cycle every 512 frames (~10s at 50Hz)
-STAR_WAVE_SLOW_SHIFT  = 2            ; TickCounter lsl for slow-layer wave speed
-; Slow amplitude: ±4 pixels  — needs ÷8192: two-step  asr.w #8 ; asr.w #5
-
 BlitStar32:
     PUSHALL
 
@@ -231,11 +215,12 @@ BlitStar32:
     cmp.w       #TITLE_SCREEN_WIDTH,d0
     bcc         .exit
 
-    ; Calculate destination byte offset into DisplayScreen plane 3 (fast star layer):
-    ;   d2 = (x / 8) + STAR_PLANE3_OFFSET
+    ; Calculate destination byte offset into DisplayScreen plane 4:
+    ;   d2 = (x / 8) + TITLE_SCREEN_WIDTH_BYTE*3 - 4
+    ;        (the -4 accounts for the 2-word blit width: blitter starts 4 bytes earlier)
     move.w      d0,d2
     lsr.w       #3,d2                              ; d2 = X / 8 (byte column)
-    add.l       #STAR_PLANE3_OFFSET,d2             ; add plane 3 start offset
+    add.l       #(TITLE_SCREEN_WIDTH_BYTE*3)-4,d2  ; add plane 4 start offset
 
     ; Add Y row offset:  d3 = Y * TITLE_SCREEN_STRIDE
     move.w      d1,d3
@@ -289,73 +274,6 @@ BlitStar32:
 
 
 ;==============================================================================
-; BlitStar32Slow  -  Blit a 32x32 star onto plane 4 of DisplayScreen (slow layer)
-;
-; Identical to BlitStar32 but targets plane 4 (BPL5, bit 4 of colour index).
-; Used for the parallax slow star layer whose colour (COLOR16 in background)
-; differs from the fast layer (plane 3, COLOR08 in background).
-;
-; On entry / register use / masks: same as BlitStar32.
-;==============================================================================
-
-BlitStar32Slow:
-    PUSHALL
-
-    cmp.w       #TITLE_SCREEN_HEIGHT,d1
-    bcc         .exits
-
-    sub.w       #32,d1
-
-    cmp.w       #TITLE_SCREEN_WIDTH,d0
-    bcc         .exits
-
-    move.w      d0,d2
-    lsr.w       #3,d2
-    add.l       #STAR_PLANE4_OFFSET,d2
-
-    move.w      d1,d3
-    muls        #TITLE_SCREEN_STRIDE,d3
-    add.l       d3,d2
-
-    add.l       #DisplayScreen,d2
-
-    move.w      d0,d3
-    and.w       #$f,d3
-    beq         .blitas
-
-    ror.w       #4,d3
-    or.w        #$9f0,d3
-
-    WAITBLIT
-    move.w      d3,BLTCON0(a6)
-    move.w      #0,BLTCON1(a6)
-    move.l      #Star32,BLTAPT(a6)
-    move.l      d2,BLTDPT(a6)
-    move.l      #$ffff0000,BLTAFWM(a6)
-    move.w      #-2,BLTAMOD(a6)
-    move.w      #STAR_BLIT_DEST_MOD-2,BLTDMOD(a6)
-    move.w      #STAR_BLIT_SIZE+1,BLTSIZE(a6)
-    WAITBLIT
-    bra         .exits
-
-.blitas
-    WAITBLIT
-    move.w      #$9f0,BLTCON0(a6)
-    move.w      #0,BLTCON1(a6)
-    move.l      #Star32,BLTAPT(a6)
-    move.l      d2,BLTDPT(a6)
-    move.l      #-1,BLTAFWM(a6)
-    move.w      #0,BLTAMOD(a6)
-    move.w      #STAR_BLIT_DEST_MOD,BLTDMOD(a6)
-    move.w      #STAR_BLIT_SIZE,BLTSIZE(a6)
-    WAITBLIT
-
-.exits
-    POPALL
-    rts
-
-
-;==============================================================================
 ; TitleCopperSetup  -  Configure the title screen copper list
 ;
 ; Patches cpTitlePlanes with the addresses of DisplayScreen's five bitplanes
@@ -397,23 +315,6 @@ TitleCopperSetup:
     move.w      (a0)+,2(a1)            ; write colour value into copper MOVE data word
     addq.l      #4,a1                  ; advance to next copper COLOR entry
     dbra        d7,.cloop
-
-    ; Fill COLOR08-COLOR15 with the fast star colour so stars on plane 3 remain visible
-    ; over any logo pixels (planes 0-2 add bits 0-2, giving indices 8-15).
-    lea         cpTitlePal+STAR_FAST_PAL_OFF,a0    ; a0 -> value word of COLOR08
-    moveq       #8-1,d7
-.fastpalloop
-    move.w      #STAR_FAST_COLOR,(a0)
-    addq.l      #4,a0
-    dbra        d7,.fastpalloop
-
-    ; Fill COLOR16-COLOR31 with the slow star colour (plane 4, indices 16-31).
-    lea         cpTitlePal+STAR_SLOW_PAL_OFF,a0    ; a0 -> value word of COLOR16
-    moveq       #16-1,d7
-.slowpalloop
-    move.w      #STAR_SLOW_COLOR,(a0)
-    addq.l      #4,a0
-    dbra        d7,.slowpalloop
 
     rts
 
@@ -475,204 +376,232 @@ TitleRun:
     rts                                ; return immediately - stars not needed this frame
 
 .nostart
-    bsr         TitleStarDraw          ; animate and blit both star layers
+    bsr         TitleStarDraw          ; animate and blit both star layers (lower half only)
+
+    ; Only rotate bar colors every 4 frames (slow down color cycling)
+    move.w      TickCounter(a5),d0
+    and.w       #3,d0
+    bne         .skipRotate
+
+    bsr         RotateTitleBar         ; rotate bar colours
+    bsr         RotateTitleBar2        ; rotate second bar colours
+
+.skipRotate
+    bsr         MoveTitleBar           ; update bar position from sine wave
+    bsr         MoveTitleBar2          ; update second bar position (opposite direction)
     rts
 
-
 ;==============================================================================
-; TitleStarDraw  -  Animate and blit both parallax star layers
+; TitleStarDraw  -  Animate and blit all four stars
 ;
-; Fast layer (TitleStars, plane 3):
-;   X += 1/frame; Y += 1/2 frames.
-;   Sine wobble applied to blit Y only (not stored): ±8 pixels, ~5s cycle.
+; Iterates through the four star records in TitleStars[].
+; Each record is { word X, word Y }.
 ;
-; Slow layer (TitleSlowStars, plane 4):
-;   X += 1/2 frames; Y += 1/4 frames.
-;   Sine wobble: ±4 pixels, ~10s cycle.
+; Per star each frame:
+;   1. Blit the star at 4 equally-spaced horizontal positions across the screen:
+;      X, X+(3*32), X+(6*32), X+(9*32)  - four copies of the 32x32 graphic.
+;   2. Move the star right by 1 pixel per frame: X += 1.
+;   3. Every other frame (TickCounter AND 1 = 0): move down by 1 pixel: Y += 1.
+;   4. Wrap X when it reaches 3*32 (96): X -= 3*32.
+;   5. Wrap Y when it reaches TITLE_STAR_COUNT*32*3: Y -= TITLE_STAR_COUNT*32*3.
 ;
-; Both layers spread 4 stars a quarter-period apart in the sine wave so
-; they form a continuous flowing curve across the screen.
-; Wrap: X at 3*32 (96), Y at TITLE_STAR_COUNT*32*3 (384).
-; Blit Y is transient (wobbled); stored Y drifts at the base scroll rate.
+; The four horizontal copies fill the 3*32*4 = 384 pixel-wide star band that
+; scrolls across the 368-pixel screen.  The wrap logic ensures seamless repeat.
+;
+; BlitStar32 handles the actual blit (with shift/mask as needed).
 ;==============================================================================
 
 TitleStarDraw:
-    ; Erase both star planes before redrawing to prevent trails.
-    ; Two sequential D-only blits (minterm $00) zero-fill plane 3 then plane 4.
-    ; BLTDMOD skips the other 4 planes per row to stay within the target plane.
-    WAITBLIT
-    move.w      #$0100,BLTCON0(a6)                                          ; D only, minterm $00
-    move.w      #0,BLTCON1(a6)
-    move.l      #DisplayScreen+TITLE_SCREEN_WIDTH_BYTE*3,BLTDPT(a6)        ; plane 3 start
-    move.w      #TITLE_SCREEN_STRIDE-TITLE_SCREEN_WIDTH_BYTE,BLTDMOD(a6)   ; skip other planes
-    move.w      #(TITLE_SCREEN_HEIGHT<<6)|(TITLE_SCREEN_WIDTH_BYTE/2),BLTSIZE(a6)
+    lea         TitleStars,a0          ; a0 -> first star record
+    moveq       #TITLE_STAR_COUNT-1,d7 ; 4 stars
 
-    WAITBLIT
-    move.l      #DisplayScreen+TITLE_SCREEN_WIDTH_BYTE*4,BLTDPT(a6)        ; plane 4 start
-    move.w      #(TITLE_SCREEN_HEIGHT<<6)|(TITLE_SCREEN_WIDTH_BYTE/2),BLTSIZE(a6)
+.starloop
+    move.w      (a0),d0                ; d0 = star X
+    move.w      2(a0),d1               ; d1 = star Y
 
-    ; --- Fast star layer (plane 3, full speed + sine wobble) ---
-    lea         TitleStars,a0
-    moveq       #TITLE_STAR_COUNT-1,d7
-
-.fastloop
-    move.w      (a0),d0
-    move.w      2(a0),d1
-
-    ; Sine-wave Y offset: sample Sinus at (TickCounter*8 + star_index*512)
-    ; Result ±8 pixels added to d1 for the blit (stored Y is not modified).
-    move.w      TickCounter(a5),d2
-    lsl.w       #STAR_WAVE_FAST_SHIFT,d2           ; phase = tick * 8
-    move.w      #TITLE_STAR_COUNT-1,d3
-    sub.w       d7,d3                              ; d3 = star index (0-3)
-    mulu        #SINE_ANGLES/4,d3                  ; d3 = index * 512 (mulu: > 8-bit shift)
-    add.w       d3,d2
-    and.w       #SINE_ANGLES-1,d2                  ; wrap to table (mask $7FF)
-    add.w       d2,d2                              ; byte index
-    lea         Sinus,a1
-    move.w      (a1,d2.w),d2                       ; ±$7fff
-    asr.w       #8,d2                              ; ÷512 in two steps (68000 max shift = 8)
-    asr.w       #1,d2                              ; → ±63 pixels
-    add.w       d2,d1                              ; modulate blit Y
-
-    bsr         BlitStar32
+    ; Blit 4 copies of the star horizontally, each 3*32 pixels apart
+    bsr         BlitStar32             ; copy 1 at (X, Y)
+    add.w       #3*32,d0               ; shift X right one star-period
+    bsr         BlitStar32             ; copy 2
     add.w       #3*32,d0
-    bsr         BlitStar32
+    bsr         BlitStar32             ; copy 3
     add.w       #3*32,d0
-    bsr         BlitStar32
-    add.w       #3*32,d0
-    bsr         BlitStar32
+    bsr         BlitStar32             ; copy 4
 
+    ; Update star position for next frame
     move.w      TickCounter(a5),d5
     addq.w      #1,(a0)                ; X += 1 every frame
-    and.w       #1,d5
-    beq         .fastskipy
-    addq.w      #1,2(a0)               ; Y += 1 every other frame
-.fastskipy
+    and.w       #1,d5                  ; test TickCounter bit 0
+    beq         .skipy
+    addq.w      #1,2(a0)               ; Y += 1 every other frame (slower vertical scroll)
+.skipy
 
-    cmp.w       #3*32,(a0)
-    bcs         .fastnowrapx
-    sub.w       #3*32,(a0)
-.fastnowrapx
+    ; Wrap X
+    cmp.w       #3*32,(a0)             ; X >= 96?
+    bcs         .nowrapx
+    sub.w       #3*32,(a0)             ; X -= 96
+.nowrapx
 
-    cmp.w       #TITLE_STAR_COUNT*32*3,2(a0)
-    bcs         .fastnowrapy
-    sub.w       #TITLE_STAR_COUNT*32*3,2(a0)
-.fastnowrapy
+    ; Wrap Y
+    cmp.w       #TITLE_STAR_COUNT*32*3,2(a0)   ; Y >= 384?
+    bcs         .nowrapy
+    sub.w       #TITLE_STAR_COUNT*32*3,2(a0)   ; Y -= 384
+.nowrapy
 
-    addq.w      #4,a0
-    dbra        d7,.fastloop
-
-    ; --- Slow star layer (plane 4, half speed + gentler sine wobble) ---
-    lea         TitleSlowStars,a0
-    moveq       #TITLE_STAR_COUNT-1,d7
-
-.slowloop
-    move.w      (a0),d0
-    move.w      2(a0),d1
-
-    ; Sine-wave Y offset: same quarter-period phase spread, slower speed + smaller amplitude
-    move.w      TickCounter(a5),d2
-    lsl.w       #STAR_WAVE_SLOW_SHIFT,d2           ; phase = tick * 4
-    move.w      #TITLE_STAR_COUNT-1,d3
-    sub.w       d7,d3
-    mulu        #SINE_ANGLES/4,d3                  ; d3 = index * 512
-    add.w       d3,d2
-    and.w       #SINE_ANGLES-1,d2
-    add.w       d2,d2
-    lea         Sinus,a1
-    move.w      (a1,d2.w),d2                       ; ±$7fff
-    asr.w       #8,d2                              ; ÷8192 in two steps
-    asr.w       #5,d2                              ; → ±4 pixels
-    add.w       d2,d1
-
-    bsr         BlitStar32Slow
-    add.w       #3*32,d0
-    bsr         BlitStar32Slow
-    add.w       #3*32,d0
-    bsr         BlitStar32Slow
-    add.w       #3*32,d0
-    bsr         BlitStar32Slow
-
-    move.w      TickCounter(a5),d5
-    and.w       #1,d5                  ; X += 1 every 2 frames
-    bne         .slowskipx
-    addq.w      #1,(a0)
-.slowskipx
-
-    move.w      TickCounter(a5),d5
-    and.w       #3,d5                  ; Y += 1 every 4 frames
-    bne         .slowskipy
-    addq.w      #1,2(a0)
-.slowskipy
-
-    cmp.w       #3*32,(a0)
-    bcs         .slownowrapx
-    sub.w       #3*32,(a0)
-.slownowrapx
-
-    cmp.w       #TITLE_STAR_COUNT*32*3,2(a0)
-    bcs         .slownowrapy
-    sub.w       #TITLE_STAR_COUNT*32*3,2(a0)
-.slownowrapy
-
-    addq.w      #4,a0
-    dbra        d7,.slowloop
+    addq.w      #4,a0                  ; advance to next star record (2 words = 4 bytes)
+    dbra        d7,.starloop
 
     rts
 
 
 ;==============================================================================
-; TitleCycleColours  -  Slowly cycle the title logo palette (COLOR01-COLOR07)
+; InitTitleBar  -  Initialize the rotating copper bar
 ;
-; Called from TitleRun every VBlank.  Advances the cycle index every 8 frames
-; (lsr.w #3 on TickCounter) so one full 8-step cycle takes ~1.28s at 50Hz —
-; a slow, readable glow rather than a fast flash.
-;
-; COLOR00 (background) is intentionally NOT written; only the 7 logo colours
-; (COLOR01-COLOR07) are updated.  The copper entry pointer starts at cpTitlePal+4
-; and the table pointer at TitleCycleTable+2 to skip the placeholder word.
-;
-; Each cpTitlePal entry is 4 bytes: { reg_word (at 0), colour_word (at +2) }.
-; Register usage: d0, d7, a0, a1 (all scratch).
+; Zeroes the sine offset and calls MoveTitleBar to set initial WAIT Y positions.
+; Called once from TitleSetup.
 ;==============================================================================
 
-TitleCycleColours:
-    move.w      TickCounter(a5),d0
-    lsr.w       #3,d0                  ; advance index every 8 frames (~1.3s per full cycle)
-    and.w       #7,d0                  ; 8-frame cycle index
-    lsl.w       #4,d0                  ; * 16 bytes (8 words per frame, power-of-2 stride)
-    lea         TitleCycleTable+2,a0   ; +2: skip unused COLOR00 placeholder per frame
-    add.w       d0,a0                  ; a0 -> COLOR01-COLOR07 values for this frame
-    lea         cpTitlePal+4,a1        ; start at COLOR01 copper entry (skip COLOR00 background)
-    moveq       #7-1,d7
-
-.cloop
-    move.w      (a0)+,2(a1)            ; write colour value to copper MOVE data word
-    addq.l      #4,a1                  ; next copper COLOR entry (4 bytes: reg + data)
-    dbra        d7,.cloop
-
+InitTitleBar:
+    ; Initialize sine offset so bars start at opposite extremes and meet at middle
+    ; SINE_ANGLES/4 places them so sine starts at max, bars at opposite ends
+    move.w  #SINE_ANGLES/4,TitleBarSineOff(a5)
+    bsr     MoveTitleBar            ; set initial bar Y positions
+    bsr     MoveTitleBar2           ; set initial second bar Y positions
     rts
 
 
 ;==============================================================================
-; TitleCycleTable  -  8-frame × 8-word palette cycle for the title logo
+; MoveTitleBar  -  Update bar Y position based on sine wave
 ;
-; Indexed by ((TickCounter >> 3) & 7); full cycle ≈ 1.28s at 50Hz.
-; Each row is 8 RGB444 words.  Entry 0 of each row is a placeholder ($000)
-; and is never written to the copper — TitleCycleColours skips it (+2 offset)
-; and always starts at COLOR01, leaving COLOR00 (background) unchanged.
-; Colours in entries 1-7 (COLOR01-COLOR07) pulse through a blue wave,
-; keeping the logo readable throughout the full cycle.
+; Samples the Sinus table and patches the WAIT Y bytes of all 10 bar entries
+; (9 bar scanlines + 1 restore entry). The Y position oscillates around
+; TITLE_BAR_CENTER with amplitude ~±31 scanlines.
+;
+; Advances TitleBarSineOff each frame; wraps at SINE_ANGLES.
 ;==============================================================================
 
-TitleCycleTable:
-    ; entry[0] = unused placeholder; entries[1-7] = COLOR01-COLOR07
-    dc.w    $000,$22c,$44e,$66f,$88f,$aaf,$ccf,$fff   ; frame 0 - brightest
-    dc.w    $000,$22a,$22c,$44e,$66f,$88f,$aaf,$ccf   ; frame 1
-    dc.w    $000,$228,$22a,$22c,$44e,$66f,$88f,$aaf   ; frame 2
-    dc.w    $000,$226,$228,$22a,$22c,$44e,$66f,$88f   ; frame 3
-    dc.w    $000,$224,$226,$228,$22a,$22c,$44e,$66f   ; frame 4 - dimmest
-    dc.w    $000,$226,$228,$22a,$22c,$44e,$66f,$88f   ; frame 5
-    dc.w    $000,$228,$22a,$22c,$44e,$66f,$88f,$aaf   ; frame 6
-    dc.w    $000,$22a,$22c,$44e,$66f,$88f,$aaf,$ccf   ; frame 7
+MoveTitleBar:
+    PUSHALL
+
+    ; Advance sine offset with wraparound (x2 for faster movement)
+    move.w  TitleBarSineOff(a5),d0
+    addq.w  #8,d0
+    cmp.w   #SINE_ANGLES,d0
+    bcs.s   .sinegood
+    moveq   #0,d0
+.sinegood:
+    move.w  d0,TitleBarSineOff(a5)
+
+    ; Sample sine table at current offset
+    add.w   d0,d0                   ; word index (2 bytes per entry)
+    lea     Sinus,a0
+    move.w  (a0,d0.w),d2            ; sine value: ±$7fff
+    asr.w   #8,d2                   ; divide by 256 → ±127
+    asr.w   #2,d2                   ; divide by 4 → ±31
+    add.b   #TITLE_BAR_CENTER,d2    ; add center (byte arithmetic, natural wrap)
+
+    ; Patch WAIT Y bytes in all 10 copper entries (9 bar + 1 restore)
+    lea     cpTitleBar,a1
+    move.w  #TITLE_BAR_COUNT,d0     ; d0=9; dbf executes 10 times (9,8,...,0)
+.patchloop:
+    move.b  d2,(a1)                 ; write new Y into high byte of WAIT word
+    addq.b  #1,d2                   ; next scanline (each bar entry is one line)
+    add.l   #TITLE_BAR_STRIDE,a1    ; advance to next copper entry (8 bytes)
+    dbf     d0,.patchloop
+
+    POPALL
+    rts
+
+
+;==============================================================================
+; RotateTitleBar  -  Rotate the bar's 9 colour values
+;
+; Shifts the colour words in cpTitleBar one position: the first colour wraps
+; to the end. This creates the visual effect of the bar's colours cycling.
+; Operates directly on chip RAM (the copper list entries).
+;
+; Called every VBlank from TitleRun before MoveTitleBar.
+;==============================================================================
+
+RotateTitleBar:
+    PUSHALL
+
+    lea     cpTitleBar,a0
+    move.w  6(a0),d7                ; save first entry's colour (offset +6 from entry start)
+    moveq   #TITLE_BAR_COUNT-2,d1   ; dbf counts from 7 down to 0 = 8 iterations
+
+    add.l   #14,a0                  ; advance to entry 1's colour (8 bytes + 6 offset)
+
+.rotate:
+    move.w  (a0),d0                 ; read colour at entry N
+    move.w  d0,-8(a0)               ; write to entry N-1's colour word
+    add.l   #8,a0                   ; advance to entry N+1
+    dbf     d1,.rotate
+
+    move.w  d7,-8(a0)               ; place saved first colour at entry 8's colour word
+
+    POPALL
+    rts
+
+
+;==============================================================================
+; MoveTitleBar2  -  Update second bar Y position (opposite direction)
+;
+; Same as MoveTitleBar but moves the second bar in the opposite direction
+; by negating the sine offset. Creates a mirror effect with the first bar.
+;==============================================================================
+
+MoveTitleBar2:
+    PUSHALL
+
+    ; Use same sine offset but negate it for opposite movement
+    move.w  TitleBarSineOff(a5),d0
+    neg.w   d0                          ; negate for opposite direction
+
+    ; Sample sine table at inverted offset
+    add.w   d0,d0                       ; word index (2 bytes per entry)
+    lea     Sinus,a0
+    move.w  (a0,d0.w),d2               ; sine value: ±$7fff
+    asr.w   #8,d2                   ; divide by 256 → ±127
+    asr.w   #2,d2                   ; divide by 4 → ±31
+    add.b   #TITLE_BAR2_CENTER,d2      ; add center (byte arithmetic, natural wrap)
+
+    ; Patch WAIT Y bytes in all 10 copper entries (9 bar + 1 restore)
+    lea     cpTitleBar2,a1
+    move.w  #TITLE_BAR_COUNT,d0        ; d0=9; dbf executes 10 times (9,8,...,0)
+.patchloop2:
+    move.b  d2,(a1)                    ; write new Y into high byte of WAIT word
+    addq.b  #1,d2                      ; next scanline (each bar entry is one line)
+    add.l   #TITLE_BAR_STRIDE,a1       ; advance to next copper entry (8 bytes)
+    dbf     d0,.patchloop2
+
+    POPALL
+    rts
+
+
+;==============================================================================
+; RotateTitleBar2  -  Rotate the second bar's 9 colour values
+;
+; Same as RotateTitleBar but for the second bar in the bottom 1/3.
+; Operates directly on chip RAM (cpTitleBar2 copper list entries).
+;==============================================================================
+
+RotateTitleBar2:
+    PUSHALL
+
+    lea     cpTitleBar2,a0
+    move.w  6(a0),d7                   ; save first entry's colour
+
+    moveq   #TITLE_BAR_COUNT-2,d1      ; dbf counts from 7 down to 0 = 8 iterations
+    add.l   #14,a0                     ; advance to entry 1's colour
+
+.rotate2:
+    move.w  (a0),d0
+    move.w  d0,-8(a0)
+    add.l   #8,a0
+    dbf     d1,.rotate2
+
+    move.w  d7,-8(a0)                  ; place saved first colour at entry 8's colour word
+
+    POPALL
+    rts
