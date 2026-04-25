@@ -79,10 +79,10 @@ StoreControls:
 
 
 ;==============================================================================
-; ReadControls  -  Sample keyboard and build control byte
+; ReadControls  -  Sample joystick (priority) then keyboard, build control byte
 ;
-; Reads the Keys[] array (set by KeyboardInterrupt) and packs the state of
-; the five game control keys into the low 5 bits of d0.
+; First reads the joystick (port 1) for input.  If joystick provides any input,
+; returns that immediately.  Otherwise falls through to keyboard input.
 ;
 ; Out:
 ;   d0.b = control bits:
@@ -90,14 +90,18 @@ StoreControls:
 ;     bit 1 = DOWN  (1 if cursor-down is held)
 ;     bit 2 = LEFT  (1 if cursor-left is held)
 ;     bit 3 = RIGHT (1 if cursor-right is held)
-;     bit 4 = FIRE  (1 if Space is held)
+;     bit 4 = FIRE  (1 if fire button is held)
 ;
-; Uses the KeyTest macro (defined in macros.asm) which checks Keys[scan_code]
-; and sets the corresponding bit in d0 if non-zero.
-; a0 must point to the Keys base - set here, assumed by KeyTest.
+; Joystick priority means if the joystick provides any input, keyboard is ignored.
+; If no joystick input, keyboard is checked instead.
 ;==============================================================================
 
 ReadControls:
+    bsr        ReadJoystick          ; d0 = joystick control bits
+    tst.b      d0                    ; any joystick input?
+    bne        .done                 ; yes - use joystick, skip keyboard
+
+    ; No joystick input - fall back to keyboard
     moveq      #0,d0                 ; clear result byte (all keys up)
     lea        Keys,a0               ; a0 = base of Keys[] scan-code buffer
 
@@ -107,4 +111,92 @@ ReadControls:
     KeyTest    $4e,CONTROLB_RIGHT    ; cursor RIGHT -> bit 3
     KeyTest    $40,CONTROLB_FIRE     ; Space bar    -> bit 4
 
+.done
+    rts
+
+
+;==============================================================================
+; ReadJoystick  -  Read joystick port 1 and return control bits
+;
+; Reads the Amiga joystick hardware (port 1) and decodes it into the standard
+; control byte format used by the rest of the game.
+;
+; Joystick bits decoded from JOY1DAT:
+;   bit 0 = Y0 (up/down, inverted: 0=up, 1=down)
+;   bit 1 = X0 (left/right, inverted: 0=left, 1=right)
+;   bit 8 = Y1
+;   bit 9 = X1
+;
+; Direction logic:
+;   UP    = Y1=0 and Y0=1
+;   DOWN  = Y1=1 and Y0=0
+;   LEFT  = X1=0 and X0=1
+;   RIGHT = X1=1 and X0=0
+;   FIRE  = CIAAPRA bit 6 = 0 (fire button active-low)
+;
+; Out:
+;   d0.b = control bits (same format as keyboard):
+;     bit 0 = UP
+;     bit 1 = DOWN
+;     bit 2 = LEFT
+;     bit 3 = RIGHT
+;     bit 4 = FIRE (joystick button 1)
+;
+; Preserves all other registers.
+;==============================================================================
+
+ReadJoystick:
+    movem.l    d1-d2/a0-a1,-(a7)    ; save working registers
+
+    moveq      #0,d0                ; clear result byte
+
+    ; Read joystick direction bits from JOY1DAT
+    lea        $dff000,a0           ; custom chip base
+    move.w     $00c(a0),d1          ; d1 = JOY1DAT
+
+    ; Up: Y1=1 and Y0=0 (quad counter 10 = up)
+    move.w     d1,d2
+    btst       #8,d2
+    beq.s      .notup
+    btst       #0,d2
+    bne.s      .notup
+    bset       #CONTROLB_UP,d0
+.notup
+
+    ; Down: Y1=0 and Y0=1 (quad counter 01 = down)
+    move.w     d1,d2
+    btst       #8,d2
+    bne.s      .notdown
+    btst       #0,d2
+    beq.s      .notdown
+    bset       #CONTROLB_DOWN,d0
+.notdown
+
+    ; Left: X1=1 and X0=0 (quad counter 10 = left)
+    move.w     d1,d2
+    btst       #9,d2
+    beq.s      .notleft
+    btst       #1,d2
+    bne.s      .notleft
+    bset       #CONTROLB_LEFT,d0
+.notleft
+
+    ; Right: X1=0 and X0=1 (quad counter 01 = right)
+    move.w     d1,d2
+    btst       #9,d2
+    bne.s      .notright
+    btst       #1,d2
+    beq.s      .notright
+    bset       #CONTROLB_RIGHT,d0
+.notright
+
+    ; Fire button (CIAAPRA bit 6)
+    lea        $bfe001,a1           ; CIAA base
+    move.b     (a1),d2              ; read CIAAPRA
+    btst       #8,d2
+    bne.s      .notfire
+    bset       #CONTROLB_FIRE,d0
+.notfire
+
+    movem.l    (a7)+,d1-d2/a0-a1
     rts

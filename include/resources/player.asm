@@ -142,16 +142,12 @@ ActionFallActors:
 
     addq.w      #1,d6                   ; count: one more actor still active
 
-    ; Restore the background tile from NonDisplayScreen before animating
-    move.w      Actor_PrevX(a3),d0      ; original tile X coordinate
-    move.w      Actor_PrevY(a3),d1      ; original tile Y coordinate
-
-    ; Add the YDec offset to the tile Y coordinate, divide by 24 to get a tile offset.
-    moveq       #0,d2                   ; zero-extend before divu (avoid garbage in high word)
-    move.w      Actor_YDec(a3),d2
-    divu        #24,d2
-    add.w       d2,d1
-    bsr         RestoreBackgroundTile        ; restore background from NonDisplayScreen
+    ; Erase the actor from its exact sub-pixel draw position (PrevY*24 + YDec).
+    ; ClearActor uses the exact pixel offset, so the full 24-row sprite region is
+    ; covered even when YDec is not tile-aligned, preventing overflow ghosts in
+    ; the tile below.  (RestoreBackgroundTile rounds to tile boundary and misses
+    ; the bottom YDec%24 rows.)
+    bsr         ClearActor
 
     ; Accelerating fall: velocity = YDec/2 + 1 (grows as fall distance increases)
     move.w      Actor_YDec(a3),d0

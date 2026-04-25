@@ -363,9 +363,25 @@ TitleRun:
     ; Check for F7 key to start the game
     lea         Keys,a0                ; a0 -> keyboard state buffer
     tst.b       KEY_F7(a0)             ; is F7 held?
-    beq         .nostart               ; no - continue title animation
+    beq         .checkjoystick         ; no - check joystick button
 
     clr.b       KEY_F7(a0)             ; consume the keypress (prevent repeat)
+    bsr         GameInit                ; set up game copper, sprites, DMA
+
+    ; setup initial level (START_LEVEL)
+    move.w      #START_LEVEL,LevelId(a5)
+    ; set GameStatus to LEVEL_INIT to force level initization sequence
+    move.w      #LEVEL_INIT,GameStatus(a5)
+
+    rts                                ; return immediately - stars not needed this frame
+
+.checkjoystick
+    ; Check for joystick button 2 (middle button, CIAAPRA bit 5) to start the game
+    lea        $bfe001,a0             ; CIAA base
+    move.b     (a0),d0                ; read CIAAPRA
+    btst       #6,d0                  ; Bit 6 = Fire (port 1)
+    bne        .nostart                ; no - continue title animation
+
     bsr         GameInit                ; set up game copper, sprites, DMA
 
     ; setup initial level (START_LEVEL)
