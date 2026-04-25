@@ -80,7 +80,10 @@ StoreControls:
 
 ;==============================================================================
 ; ReadControls  -  Sample joystick (priority) then keyboard, build control byte
+; ReadControls  -  Sample joystick (priority) then keyboard, build control byte
 ;
+; First reads the joystick (port 1) for input.  If joystick provides any input,
+; returns that immediately.  Otherwise falls through to keyboard input.
 ; First reads the joystick (port 1) for input.  If joystick provides any input,
 ; returns that immediately.  Otherwise falls through to keyboard input.
 ;
@@ -91,7 +94,10 @@ StoreControls:
 ;     bit 2 = LEFT  (1 if cursor-left is held)
 ;     bit 3 = RIGHT (1 if cursor-right is held)
 ;     bit 4 = FIRE  (1 if fire button is held)
+;     bit 4 = FIRE  (1 if fire button is held)
 ;
+; Joystick priority means if the joystick provides any input, keyboard is ignored.
+; If no joystick input, keyboard is checked instead.
 ; Joystick priority means if the joystick provides any input, keyboard is ignored.
 ; If no joystick input, keyboard is checked instead.
 ;==============================================================================
