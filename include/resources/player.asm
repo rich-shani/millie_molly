@@ -106,8 +106,8 @@ ActionFall:
 ;
 ; Iterates the FallenActors list (populated by ActorFallAll) and for each
 ; actor with Actor_HasFalled set:
-;   1. RestoreBackgroundTile - restore background behind the actor
-;   2. Increment Actor_YDec by 1 (smooth fall by one pixel per frame)
+;   1. RestoreBackgroundTile x2 - restore the two tiles the sprite spans
+;   2. Increment Actor_YDec (accelerating: YDec/2 + 1 per frame)
 ;   3. DrawActor        - redraw at new sub-pixel position
 ;   4. When Actor_YDec reaches Actor_FallY: clear fall fields, set
 ;      Actor_ImpactTick = 1 to start the landing smoke animation, then
@@ -142,12 +142,28 @@ ActionFallActors:
 
     addq.w      #1,d6                   ; count: one more actor still active
 
-    ; Erase the actor from its exact sub-pixel draw position (PrevY*24 + YDec).
-    ; ClearActor uses the exact pixel offset, so the full 24-row sprite region is
-    ; covered even when YDec is not tile-aligned, preventing overflow ghosts in
-    ; the tile below.  (RestoreBackgroundTile rounds to tile boundary and misses
-    ; the bottom YDec%24 rows.)
-    bsr         ClearActor
+    ; ROOT CAUSE: ClearActor erases a 24-row window at PrevY*24+YDec, then
+    ; DrawActor immediately redraws PrevY*24+(YDec+delta).  When delta is
+    ; small (1,2,4... on early frames) 20-23 of the 24 cleared rows are
+    ; repainted in the same frame, so every tile in the fall path appears
+    ; unchanged for many frames — a persistent ghost.
+    ;
+    ; FIX: the sprite is 24 pixels tall and can span at most two tiles.
+    ; Restore both tiles from NonDisplayScreen before every draw.  This gives
+    ; a clean slate regardless of velocity, eliminating ghosts in the original
+    ; tile and in every intermediate tile throughout the entire fall.
+    moveq       #0,d0
+    move.w      Actor_YDec(a3),d0
+    divu        #24,d0                   ; d0.w = floor(YDec/24) = whole tiles fallen
+    move.w      Actor_PrevX(a3),d1      ; save tile X (preserved by RestoreBackgroundTile)
+    move.w      Actor_PrevY(a3),d2      ; save base tile Y
+    add.w       d0,d2                    ; d2 = tile Y of sprite top
+    move.w      d1,d0                    ; d0 = tile X
+    move.w      d2,d1                    ; d1 = tile Y (top)
+    bsr         RestoreBackgroundTile    ; wipe tile containing sprite top
+    addq.w      #1,d1                    ; tile immediately below = sprite bottom
+    move.w      Actor_PrevX(a3),d0
+    bsr         RestoreBackgroundTile    ; wipe tile containing sprite bottom
 
     ; Accelerating fall: velocity = YDec/2 + 1 (grows as fall distance increases)
     move.w      Actor_YDec(a3),d0

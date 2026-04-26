@@ -190,10 +190,12 @@ ReadJoystick:
     bset       #CONTROLB_RIGHT,d0
 .notright
 
-    ; Fire button (CIAAPRA bit 6)
+    ; Fire button: CIAAPRA bit 6, active-low (0 = pressed).
+    ; move.b only writes bits 0-7; bit 8 would still hold JOY1DAT's Y1 from
+    ; the .notright check above, so the bit number must be 0-7.
     lea        $bfe001,a1           ; CIAA base
-    move.b     (a1),d2              ; read CIAAPRA
-    btst       #8,d2
+    move.b     (a1),d2              ; read CIAAPRA into bits 0-7
+    btst       #6,d2                ; bit 6 = joystick 1 fire (0 = pressed)
     bne.s      .notfire
     bset       #CONTROLB_FIRE,d0
 .notfire
