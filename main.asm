@@ -271,6 +271,7 @@ GameInit:
     bsr        GenSpriteMask
     move.l     #cpTest,COP1LC(a6)
     move.w     #0,COPJMP1(a6)
+    bsr        VHS_Init
 
     move.l     #-1,ScreenMemEnd
     move.w     #BASE_DMA,DMACON(a6)
@@ -375,6 +376,10 @@ VBlankTick:
 
     bsr        GameStatusRun
 
+    tst.b      VHS_StateActive      ; fast byte test - no call overhead when idle
+    beq        .exit
+    bsr        VHS_DoFrame          ; apply colour noise; restores copper on d0=0
+
 .exit
     POPALL
     rte
@@ -476,6 +481,7 @@ ClearSprites:
     include    "spritetools.asm"
     include    "player.asm"
     include    "undo.asm"
+    include    "vhs_rewind.asm"
     include    "controls.asm"
     include    "title.asm"
     include    "gamestatus.asm"
