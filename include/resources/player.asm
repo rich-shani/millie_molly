@@ -947,8 +947,16 @@ ActionIdle:
     tst.b       KEY_F9(a0)
     beq         .nof9
     clr.b       KEY_F9(a0)
+    cmp.w       #2,SnapshotCount(a5)    ; at least one move in the undo stack?
+    blt         .f9_done                ; nothing to undo: clear key, skip both
     bsr         UndoMove
+<<<<<<< HEAD
     rts                                              ; done for this frame after undo
+=======
+    bsr         VHS_StartEffect
+.f9_done
+    rts
+>>>>>>> 6cc770c (Only run VHS effect if there's an undo event on the stack)
 .nof9
     btst        #CONTROLB_FIRE,ControlsTrigger(a5)  ; FIRE button just pressed?
     bne         PlayerSwitch                         ; yes -> switch active player
