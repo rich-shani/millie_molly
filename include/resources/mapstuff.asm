@@ -886,9 +886,9 @@ WallPaperLoadBase:
 ; The blit uses minterm $fca (A&B | ~A&C): mask selects between sprite (B)
 ; and background (C), producing transparent blitting.
 ;
-; Handles both aligned and 1-word-shifted (twowords) cases:
-;   Aligned (shift = 0): source and dest modulos = 0 / TILE_BLT_MOD
-;   Shifted (shift > 0): modulos are -2 wider (one extra word per row)
+; Handles thin (shift 0-8: 2 words) and fat (shift 9-15: 3 words) cases:
+;   Thin  (shift 0-8):  24px fits in 2 output words; modulos 0 / TILE_BLT_MOD
+;   Fat   (shift >= 9): sprite overflows into 3rd word; modulos -2 / TILE_BLT_MOD-2
 ;==============================================================================
 
 DrawSprite:
@@ -914,10 +914,10 @@ DrawSprite:
     ror.w         #4,d0                  ; pack shift into bits 15:12 for BLTCON0
     move.w        d0,d1
     or.w          #$fca,d0               ; d0 = BLTCON0: shift + minterm A&B|~A&C
-    cmp.w         #$8000,d1              ; shift = 0? (ror of 0 gives $8000? no, $0000)
-    bcs           .twowords              ; shift != 0: need extra word (3 word wide blit)
+    cmp.w         #$9000,d1              ; shift 0-8: 24px fits in 2 words; shift 9-15: needs 3
+    bcs           .twowords              ; shift < 9: 2-word blit
 
-    ; Aligned blit (2 words wide, no shift)
+    ; Shifted blit (3 words wide: shift >= 9, sprite overflows into 3rd output word)
     WAITBLIT
     move.w        d0,BLTCON0(a6)
     move.w        d1,BLTCON1(a6)
@@ -934,11 +934,11 @@ DrawSprite:
     bra           .done
 
 .twowords
-    ; Shifted blit (3 words wide: sprite spans a word boundary)
+    ; Thin blit (2 words wide: shift 0-8, 24px fits without overflowing into a 3rd word)
     WAITBLIT
     move.w        d0,BLTCON0(a6)
     move.w        d1,BLTCON1(a6)
-    move.l        #-1,BLTAFWM(a6)        ; all bits valid
+    move.l        #$ffffff00,BLTAFWM(a6) ; first word all valid; last word: zero padding byte
     move.l        a2,BLTAPT(a6)
     move.l        a0,BLTBPT(a6)
     move.l        a1,BLTCPT(a6)
@@ -1584,11 +1584,13 @@ DrawButton:
 ; pixel position is computed from PrevX/Y + XDec/YDec (smooth animation position).
 ;
 ; Two blit variants based on the X sub-pixel shift:
-;   shift >= 8 (fat blit): 3-word wide blit with $ffff0000 first-word mask
-;   shift <  8 (thin blit): 2-word wide blit with all-ones mask
+;   shift >= 9 (fat blit): 3-word wide blit with $ffff0000 first-word mask
+;   shift <  9 (thin blit): 2-word wide blit with all-ones mask
 ;
-; The distinction ensures the blitter does not read/write beyond the intended
-; area when the sprite straddles a word boundary awkwardly.
+; A 24-pixel sprite stored in 32-pixel-wide rows only overflows into a 3rd output
+; word when shift >= 9.  At shift = 8 the last sprite pixel lands at the end of
+; word 1, so 2 words are sufficient and using 3 would leak padding bits into the
+; adjacent tile's screen area.
 ;
 ; On entry:
 ;   a3 = actor structure pointer (for PrevX, PrevY, XDec, YDec, SpriteOffset)
@@ -1629,10 +1631,10 @@ DrawActor:
     ; Calculate shift: X mod 16
     and.w         #$f,d0
 
-    cmp.w         #8,d0                  ; compare shift with 8
-    bcs           .thin                  ; shift < 8: thin (2-word) blit
+    cmp.w         #9,d0                  ; compare shift with 9
+    bcs           .thin                  ; shift < 9: thin (2-word) blit
 
-    ; --- Fat blit (shift >= 8): sprite overflows into 3 words ---
+    ; --- Fat blit (shift >= 9): sprite overflows into 3 words ---
     ror.w         #4,d0                  ; pack shift into BLTCON0 shift field
     move.w        d0,d1
     or.w          #$fca,d0               ; minterm $fca = A&B | ~A&C
@@ -1655,7 +1657,7 @@ DrawActor:
     rts
 
 .thin
-    ; --- Thin blit (shift < 8): sprite fits in 2 words ---
+    ; --- Thin blit (shift 0-8): sprite fits in 2 words ---
     ror.w         #4,d0
     move.w        d0,d1
     or.w          #$fca,d0
@@ -1663,7 +1665,7 @@ DrawActor:
     WAITBLIT
     move.w        d0,BLTCON0(a6)
     move.w        d1,BLTCON1(a6)
-    move.l        #$ffffffff,BLTAFWM(a6) ; all bits valid
+    move.l        #$ffffff00,BLTAFWM(a6) ; first word all valid; last word: zero padding byte
     move.l        a2,BLTAPT(a6)
     move.l        a0,BLTBPT(a6)
     move.l        a1,BLTCPT(a6)
