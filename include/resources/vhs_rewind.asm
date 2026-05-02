@@ -19,28 +19,29 @@
 ; TUNING: adjust the EQUs below to change effect intensity without touching code.
 ;==============================================================================
 
-VHS_EFFECT_DURATION EQU  30          ; frames at full effect (in Hz)
+VHS_EFFECT_DURATION EQU  30          ; frames at full effect (~0.6 s at 50 Hz PAL)
 VHS_LFSR_POLY       EQU  $80000057   ; Galois LFSR polynomial (maximal-length 32-bit)
 VHS_NOISE_BITS      EQU  $0111       ; XOR mask: bits 0,4,8 = B/G/R channel LSBs
 
 ; --- Scanline jitter (BPLCON1 copper slots in cpVHSDistort) ---
 ; Screen splits into three regions; one copper WAIT+BPLCON1 slot per region.
 ; Slots always carry valid scanlines so no slot blocks subsequent ones.
-; VHS_HSHIFT_MASK selects shift magnitude: $03 = 0-3 colour clocks = 0-6 lo-res pixels.
-; Raise to $07 for more aggressive jitter (0-14 pixels).
+; VHS_HSHIFT_MASK is ANDed with the LFSR byte; set bits choose which colour-clock
+; steps are possible.  $05 (bits 0,2) yields steps {0,1,4,5} → BPLCON1 $00/$11/$44/$55
+; = 0/2/8/10 lo-res pixels.  Use $03 for subtle 0-6 px, $07 for 0-14 px maximum.
 VHS_SLOT0_BASE      EQU  $2c         ; region 0 start: display top      (line  44)
 VHS_SLOT1_BASE      EQU  $74         ; region 1 start: middle third      (line 116)
 VHS_SLOT2_BASE      EQU  $bc         ; region 2 start: bottom third      (line 188)
 VHS_SLOT_RAND       EQU  $3f         ; random line spread within region  (0-63 lines)
-VHS_HSHIFT_MASK     EQU  $05         ; shift magnitude mask (0-3 → $00/$11/$22/$33)
+VHS_HSHIFT_MASK     EQU  $05         ; AND mask: bits 0,2 → steps {0,1,4,5} = 0/2/8/10 px
 
 ; --- Vertical roll blip (bitplane pointer offset) ---
 ; Every VHS_ROLL_INTERVAL frames the display jumps up by VHS_ROLL_LINES rows
 ; for exactly one frame then snaps back - classic VHS tracking roll.
 ; Increase VHS_ROLL_LINES for a larger jump, decrease VHS_ROLL_INTERVAL for
 ; more frequent rolls.
-VHS_ROLL_INTERVAL   EQU  10          ; frames between roll events 
-VHS_ROLL_LINES      EQU  8           ; rows to offset during the blip
+VHS_ROLL_INTERVAL   EQU  10          ; frames between roll events (~0.2 s at 50 Hz PAL)
+VHS_ROLL_LINES      EQU  8           ; rows to offset during the blip (8 rows = 1680 bytes)
 VHS_ROLL_BYTES      EQU  VHS_ROLL_LINES*SCREEN_STRIDE  ; byte delta for BPLxPT offset
 
 ;==============================================================================
@@ -295,10 +296,12 @@ VHS_ClearDistort:
 ; and BPLCON1 data word into the corresponding cpVHSDistort slot.
 ;
 ; BPLCON1 format: bits 7-4 = even-plane delay, bits 3-0 = odd-plane delay.
-; Both nibbles are set equal, so all bitplanes shift by the same amount:
-;   $11 = 1 colour clock = 2 lo-res pixels
-;   $22 = 2 colour clocks = 4 lo-res pixels
-;   $33 = 3 colour clocks = 6 lo-res pixels
+; Both nibbles are set equal so all bitplanes shift by the same amount.
+; With VHS_HSHIFT_MASK=$05 the possible BPLCON1 values are:
+;   $00 = 0 colour clocks =  0 lo-res pixels  (slot inactive)
+;   $11 = 1 colour clock  =  2 lo-res pixels
+;   $44 = 4 colour clocks =  8 lo-res pixels
+;   $55 = 5 colour clocks = 10 lo-res pixels
 ;
 ; When the LFSR yields shift=0 a WAIT is still written with BPLCON1=$0000 so
 ; no slot blocks the subsequent ones by stalling at an off-screen line.
