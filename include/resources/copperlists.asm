@@ -155,6 +155,25 @@ cpPal:
     dc.w    COLOR30,0               ; colour 30 (patched)
     dc.w    COLOR31,0               ; colour 31 (patched)
 
+; cpVHSDistort - VHS tracking-error scanline distortion (patched by vhs_rewind.asm)
+;
+; Three WAIT+BPLCON1 pairs cover the top, middle, and bottom thirds of the screen.
+; Each slot fires at a pseudo-random line within its region and sets BPLCON1 to a
+; colour-clock shift value ($11/$22/$33 = 2/4/6 lo-res pixels).  The shift persists
+; to the start of the next slot (or end-of-frame); the BPLCON1=$0000 MOVE at the
+; top of cpTest resets the register cleanly at the beginning of every new frame.
+;
+; Slots always carry valid scanline WAITs (never $ff07) so no slot blocks the next.
+; When the shift value is 0, the WAIT fires but BPLCON1 stays $0000 (no visible change).
+; VHS_ClearDistort writes base-line WAITs + $0000 to all three slots when inactive.
+cpVHSDistort:
+    dc.w    $2c07,$fffe             ; slot 0: WAIT at display-top line (patched each frame)
+    dc.w    BPLCON1,$0000           ; slot 0: horizontal shift value (0 = inactive)
+    dc.w    $7407,$fffe             ; slot 1: WAIT at middle-third base line (patched)
+    dc.w    BPLCON1,$0000           ; slot 1: horizontal shift value
+    dc.w    $bc07,$fffe             ; slot 2: WAIT at bottom-third base line (patched)
+    dc.w    BPLCON1,$0000           ; slot 2: horizontal shift value
+
     dc.l    COPPER_HALT             ; end-of-list marker 1 ($fffffffe)
     dc.l    COPPER_HALT             ; end-of-list marker 2 (belt-and-braces)
 
